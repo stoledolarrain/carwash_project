@@ -4,7 +4,7 @@
 
 - **Materia:** Ingeniería Web III
 - **Docente:** Ing. Gary Franco
-- **Equipo de Desarrollo:** Daniel Morales, Jose Paulo Mercado, Luciana Ramos, Samir Toledo y [Tu Nombre/Apellidos]
+- **Equipo de Desarrollo:** Daniel Morales, Jose Paulo Mercado, Luciana Ramos y Samir Toledo
 
 ## Descripción del Proyecto
 
