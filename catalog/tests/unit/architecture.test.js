@@ -38,4 +38,13 @@ describe('Reglas de dependencias entre capas', () => {
       }
     }
   });
+
+  it('Presentation no depende directamente de Infrastructure, pg ni KafkaJS', () => {
+    for (const file of jsFiles(path.join(SRC, 'presentation'))) {
+      for (const mod of requiredModules(file)) {
+        expect(mod).not.toMatch(/infrastructure/);
+        expect(['pg', 'kafkajs']).not.toContain(mod);
+      }
+    }
+  });
 });

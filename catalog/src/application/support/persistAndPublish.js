@@ -3,14 +3,15 @@ const { toServiceDto } = require('../dtos/ServiceDto');
 /**
  * Guarda el servicio y registra sus eventos pendientes de manera atómica.
  *
- * Prioridad de ejecución:
- * 1. Si existe `unitOfWork`, ejecuta `serviceRepository.save(service)` y `outboxRepository.saveAll(events)`
- *    en la misma transacción de base de datos (`BEGIN` ... `COMMIT` / `ROLLBACK`).
- * 2. Si el repositorio implementa `saveWithOutbox(service, events)` (sin `save` sobrescrito en un test),
- *    delega la transacción atómica al repositorio.
- * 3. Como respaldo para dobles de prueba en memoria, llama a `repository.save` y `eventPublisher.publishAll`.
+ * - Con `unitOfWork` (cableado de producción): `serviceRepository.save` y `outboxRepository.saveAll`
+ *   se ejecutan en la misma transacción PostgreSQL (`BEGIN` ... `COMMIT` / `ROLLBACK`).
+ * - Sin `unitOfWork`: delega en `repository.saveWithOutbox` si existe, o en `repository.save`
+ *   (dobles de prueba en memoria).
+ * - `eventPublisher` es un gancho opcional posterior al commit usado por las pruebas unitarias.
+ *   En producción el contenedor lo deja en `null`: la publicación a Kafka la hace únicamente
+ *   `OutboxWorker` leyendo `outbox_events`.
  *
- * Si no hay eventos pendientes (la operación no produjo cambios reales), no guarda ni inserta eventos.
+ * Si no hay eventos pendientes (la operación no produjo cambios reales), no guarda ni registra nada.
  */
 async function persistAndPublish(service, { repository, eventPublisher, unitOfWork }) {
   const events = service.pullDomainEvents();
@@ -23,24 +24,12 @@ async function persistAndPublish(service, { repository, eventPublisher, unitOfWo
       await serviceRepository.save(service);
       await outboxRepository.saveAll(events);
     });
-    if (eventPublisher) {
-      await eventPublisher.publishAll(events);
-    }
-    return toServiceDto(service);
-  }
-
-  const hasCustomSaveOverride =
-    repository && Object.prototype.hasOwnProperty.call(repository, 'save');
-
-  if (repository && typeof repository.saveWithOutbox === 'function' && !hasCustomSaveOverride) {
+  } else if (typeof repository.saveWithOutbox === 'function') {
     await repository.saveWithOutbox(service, events);
-    if (eventPublisher) {
-      await eventPublisher.publishAll(events);
-    }
-    return toServiceDto(service);
+  } else {
+    await repository.save(service);
   }
 
-  await repository.save(service);
   if (eventPublisher) {
     await eventPublisher.publishAll(events);
   }

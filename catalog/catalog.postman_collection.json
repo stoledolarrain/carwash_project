@@ -1,0 +1,1007 @@
+{
+  "info": {
+    "_postman_id": "7b2a9d10-4c11-4f82-9e52-8d1a2c3e4f50",
+    "name": "Catalog Service — Plataforma de Gestión Car Wash",
+    "description": "Colección oficial de pruebas HTTP para el microservicio Catalog Service (Ingeniería Web III).\n\nRecorrido recomendado:\n1. Health -> Comprobar que Catalog está activo.\n2. Administración -> Crear servicio, actualizar datos, cambiar precio, desactivar, consultar desde admin y reactivar.\n3. Servicios públicos -> Listar servicios activos y consultar por UUID.\n4. Consulta por lote -> Verificar respuesta para Wash Order (incluyendo inactivos y notFound).\n5. Casos de error -> Verificar validaciones 400, 401/403, 404 y 409.\n\nNota sobre autenticación administrativa (/api/catalog/admin/*):\nMientras Identity Service y API Gateway no estén integrados, no existe un token JWT real. Para ejecutar las solicitudes administrativas con rol ADMIN, inicia Catalog Service con `npm run dev:admin` (o `DEV_AUTH_ROLE=ADMIN`). Para comprobar 401 UNAUTHORIZED inicia con `npm start`, y para 403 FORBIDDEN con `DEV_AUTH_ROLE=OPERATOR`.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3002",
+      "type": "string"
+    },
+    {
+      "key": "serviceId",
+      "value": "11111111-1111-4111-8111-111111111111",
+      "type": "string"
+    },
+    {
+      "key": "missingId",
+      "value": "99999999-9999-4999-8999-999999999999",
+      "type": "string"
+    },
+    {
+      "key": "serviceName",
+      "value": "TEST - Lavado Integral",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "description": "Verificación de disponibilidad del microservicio Catalog Service.",
+      "item": [
+        {
+          "name": "1. GET /health — Estado del servicio",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Verifica que el microservicio Catalog Service esté en ejecución y responda 200 OK."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y formato JSON', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.response.to.be.json;",
+                  "});",
+                  "pm.test('Incluye status ok y service catalog-service', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.status).to.eql('ok');",
+                  "  pm.expect(body.service).to.eql('catalog-service');",
+                  "  pm.expect(body.timestamp).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Administración",
+      "description": "Operaciones administrativas del catálogo (`/api/catalog/admin/services`). Requiere iniciar el servicio con `DEV_AUTH_ROLE=ADMIN` (`npm run dev:admin`) mientras Identity Service y API Gateway no estén integrados.",
+      "item": [
+        {
+          "name": "2. POST /api/catalog/admin/services — Crear servicio",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const uniqueSuffix = Date.now().toString().slice(-6);",
+                  "pm.collectionVariables.set('serviceName', 'TEST - Lavado Integral ' + uniqueSuffix);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201 Created y JSON válido', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.response.to.be.json;",
+                  "});",
+                  "pm.test('Devuelve servicio con UUID válido, campos obligatorios y guarda serviceId', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.id).to.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i);",
+                  "  pm.expect(body.name).to.eql(pm.collectionVariables.get('serviceName'));",
+                  "  pm.expect(body.price).to.eql(80.5);",
+                  "  pm.expect(body.currency).to.eql('BOB');",
+                  "  pm.expect(body.estimatedDuration).to.eql(45);",
+                  "  pm.expect(body.isActive).to.eql(true);",
+                  "  pm.expect(body.version).to.eql(1);",
+                  "  pm.collectionVariables.set('serviceId', body.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{serviceName}}\",\n  \"description\": \"Servicio de prueba: lavado exterior, interior y aspirado\",\n  \"price\": 80.50,\n  \"currency\": \"BOB\",\n  \"estimatedDuration\": 45\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"]
+            },
+            "description": "Crea un servicio nuevo en el catálogo y almacena su UUID en la variable de colección `serviceId`."
+          }
+        },
+        {
+          "name": "3. GET /api/catalog/admin/services — Listar todos (activos e inactivos)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y JSON válido', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.response.to.be.json;",
+                  "});",
+                  "pm.test('Incluye items, total, page y pageSize', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.items).to.be.an('array');",
+                  "  pm.expect(body.total).to.be.a('number');",
+                  "  pm.expect(body.page).to.eql(1);",
+                  "  pm.expect(body.pageSize).to.eql(20);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services?page=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Lista todos los servicios (activos e inactivos) ordenados alfabéticamente por nombre."
+          }
+        },
+        {
+          "name": "4. PUT /api/catalog/admin/services/:id — Actualizar datos generales",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y actualiza descripción y duración', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.id).to.eql(pm.collectionVariables.get('serviceId'));",
+                  "  pm.expect(body.estimatedDuration).to.eql(55);",
+                  "  pm.expect(body.version).to.be.at.least(2);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{serviceName}}\",\n  \"description\": \"Servicio actualizado: lavado exterior, interior, aspirado y silicona\",\n  \"estimatedDuration\": 55\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services/{{serviceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services", "{{serviceId}}"]
+            },
+            "description": "Actualiza los datos generales (`name`, `description`, `estimatedDuration`) del servicio identificado por `{{serviceId}}`."
+          }
+        },
+        {
+          "name": "5. PATCH /api/catalog/admin/services/:id/price — Cambiar precio",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y actualiza el precio en BOB', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.id).to.eql(pm.collectionVariables.get('serviceId'));",
+                  "  pm.expect(body.price).to.eql(95);",
+                  "  pm.expect(body.currency).to.eql('BOB');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"price\": 95.00,\n  \"currency\": \"BOB\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services/{{serviceId}}/price",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services", "{{serviceId}}", "price"]
+            },
+            "description": "Actualiza el precio vigente del servicio en moneda BOB y registra `ServicePriceChanged` en el Outbox."
+          }
+        },
+        {
+          "name": "6. PATCH /api/catalog/admin/services/:id/deactivate — Desactivar servicio",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y deja isActive en false', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.id).to.eql(pm.collectionVariables.get('serviceId'));",
+                  "  pm.expect(body.isActive).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services/{{serviceId}}/deactivate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services", "{{serviceId}}", "deactivate"]
+            },
+            "description": "Desactiva un servicio activo para ocultarlo del catálogo público."
+          }
+        },
+        {
+          "name": "7. GET /api/catalog/admin/services?isActive=false — Consultar inactivos en administración",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y devuelve únicamente servicios inactivos', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.items).to.be.an('array');",
+                  "  body.items.forEach(function (item) {",
+                  "    pm.expect(item.isActive).to.eql(false);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services?isActive=false&page=1&pageSize=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"],
+              "query": [
+                {
+                  "key": "isActive",
+                  "value": "false"
+                },
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Verifica que un servicio desactivado sigue siendo visible desde el listado administrativo filtrando por `isActive=false`."
+          }
+        },
+        {
+          "name": "8. PATCH /api/catalog/admin/services/:id/activate — Reactivar servicio",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y deja isActive en true', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.id).to.eql(pm.collectionVariables.get('serviceId'));",
+                  "  pm.expect(body.isActive).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services/{{serviceId}}/activate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services", "{{serviceId}}", "activate"]
+            },
+            "description": "Vuelve a activar un servicio inactivo para que reaparezca en el catálogo público."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Servicios públicos",
+      "description": "Consultas públicas del catálogo (`/api/catalog/services`). No requieren autenticación y solo exponen servicios activos.",
+      "item": [
+        {
+          "name": "1. GET /api/catalog/services — Listar servicios activos",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y formato JSON con metadatos de paginación', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.response.to.be.json;",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.items).to.be.an('array');",
+                  "  pm.expect(body.total).to.be.a('number');",
+                  "  pm.expect(body.page).to.eql(1);",
+                  "  pm.expect(body.pageSize).to.eql(20);",
+                  "  body.items.forEach(function (item) {",
+                  "    pm.expect(item.isActive).to.eql(true);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "services"]
+            },
+            "description": "Lista los servicios activos del catálogo con la paginación por defecto (`page=1`, `pageSize=20`)."
+          }
+        },
+        {
+          "name": "2. GET /api/catalog/services?page=1&pageSize=10 — Listar con paginación explícita",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK con page=1 y pageSize=10', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.items).to.be.an('array');",
+                  "  pm.expect(body.page).to.eql(1);",
+                  "  pm.expect(body.pageSize).to.eql(10);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/services?page=1&pageSize=10",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "services"],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "1"
+                },
+                {
+                  "key": "pageSize",
+                  "value": "10"
+                }
+              ]
+            },
+            "description": "Lista servicios activos especificando `page=1` y `pageSize=10`."
+          }
+        },
+        {
+          "name": "3. GET /api/catalog/services/:id — Consultar servicio activo por ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK con los campos obligatorios del servicio activo', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.id).to.eql(pm.collectionVariables.get('serviceId'));",
+                  "  pm.expect(body.name).to.be.a('string');",
+                  "  pm.expect(body.price).to.be.a('number');",
+                  "  pm.expect(body.currency).to.eql('BOB');",
+                  "  pm.expect(body.estimatedDuration).to.be.a('number');",
+                  "  pm.expect(body.isActive).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/services/{{serviceId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "services", "{{serviceId}}"]
+            },
+            "description": "Obtiene el detalle público del servicio activo identificado por `{{serviceId}}`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Consulta por lote",
+      "description": "Endpoint de integración síncrona para Wash Order Service (`POST /api/catalog/services/batch`).",
+      "item": [
+        {
+          "name": "1. POST /api/catalog/services/batch — Consultar múltiples IDs (existentes y notFound)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y JSON válido', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.response.to.be.json;",
+                  "});",
+                  "pm.test('Devuelve arreglos services y notFound', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.services).to.be.an('array');",
+                  "  pm.expect(body.notFound).to.be.an('array');",
+                  "  pm.expect(body.notFound).to.include(pm.collectionVariables.get('missingId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ids\": [\n    \"{{serviceId}}\",\n    \"{{missingId}}\"\n  ]\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/services/batch",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "services", "batch"]
+            },
+            "description": "Devuelve los servicios encontrados (incluyendo su precio en BOB, duración estimada y estado `isActive`) junto con la lista `notFound`."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Casos de error",
+      "description": "Pruebas negativas para verificar las validaciones HTTP (400), no encontrado (404), conflictos de negocio (409) y seguridad (401/403).",
+      "item": [
+        {
+          "name": "1. Nombre vacío (400 VALIDATION_ERROR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"   \",\n  \"price\": 50,\n  \"estimatedDuration\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"]
+            },
+            "description": "Verifica que se rechace un nombre vacío o de solo espacios con 400 VALIDATION_ERROR."
+          }
+        },
+        {
+          "name": "2. Nombre demasiado largo (> 100 caracteres) (400 VALIDATION_ERROR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Nombre excesivamente largo que supera el limite maximo permitido de cien caracteres en el catalogo de servicios de lavado\",\n  \"price\": 50,\n  \"estimatedDuration\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"]
+            },
+            "description": "Verifica que un nombre de más de 100 caracteres sea rechazado con 400 VALIDATION_ERROR."
+          }
+        },
+        {
+          "name": "3. Descripción de más de 500 caracteres (400 VALIDATION_ERROR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"TEST - Descripcion Larga\",\n  \"description\": \"123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901\",\n  \"price\": 50,\n  \"estimatedDuration\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"]
+            },
+            "description": "Verifica que una descripción mayor a 500 caracteres sea rechazada con 400 VALIDATION_ERROR."
+          }
+        },
+        {
+          "name": "4. Precio negativo (400 VALIDATION_ERROR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"TEST - Precio Negativo\",\n  \"price\": -10,\n  \"estimatedDuration\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"]
+            },
+            "description": "Verifica que un precio negativo sea rechazado con 400 VALIDATION_ERROR."
+          }
+        },
+        {
+          "name": "5. Precio con más de dos decimales (400 VALIDATION_ERROR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"TEST - Tres Decimales\",\n  \"price\": 45.125,\n  \"estimatedDuration\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"]
+            },
+            "description": "Verifica que un precio con más de 2 decimales sea rechazado con 400 VALIDATION_ERROR."
+          }
+        },
+        {
+          "name": "6. Duración igual a cero (400 VALIDATION_ERROR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"TEST - Duracion Cero\",\n  \"price\": 45,\n  \"estimatedDuration\": 0\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"]
+            },
+            "description": "Verifica que una duración estimada igual o menor a cero sea rechazada con 400 VALIDATION_ERROR."
+          }
+        },
+        {
+          "name": "7. Moneda diferente de BOB (400 VALIDATION_ERROR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"TEST - Moneda USD\",\n  \"price\": 45,\n  \"currency\": \"USD\",\n  \"estimatedDuration\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"]
+            },
+            "description": "Verifica que cualquier moneda distinta de BOB sea rechazada con 400 VALIDATION_ERROR."
+          }
+        },
+        {
+          "name": "8. UUID inválido en ruta (400 VALIDATION_ERROR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400 VALIDATION_ERROR ante un UUID malformado', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/services/no-es-un-uuid",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "services", "no-es-un-uuid"]
+            },
+            "description": "Verifica que un parámetro `:id` que no sea UUID responda 400 VALIDATION_ERROR."
+          }
+        },
+        {
+          "name": "9. Servicio inexistente (404 SERVICE_NOT_FOUND)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404 SERVICE_NOT_FOUND', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('SERVICE_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [{ "key": "Accept", "value": "application/json" }],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/services/{{missingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "services", "{{missingId}}"]
+            },
+            "description": "Verifica que consultar un UUID que no existe responda 404 SERVICE_NOT_FOUND."
+          }
+        },
+        {
+          "name": "10. Nombre duplicado ignorando mayúsculas/minúsculas (409 DUPLICATE_SERVICE_NAME)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409 DUPLICATE_SERVICE_NAME', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('DUPLICATE_SERVICE_NAME');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{serviceName}}\",\n  \"price\": 60,\n  \"estimatedDuration\": 30\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"]
+            },
+            "description": "Verifica que crear un servicio con un nombre existente responda 409 DUPLICATE_SERVICE_NAME."
+          }
+        },
+        {
+          "name": "11. Activar un servicio ya activo (409 SERVICE_ALREADY_ACTIVE)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409 SERVICE_ALREADY_ACTIVE', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('SERVICE_ALREADY_ACTIVE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services/{{serviceId}}/activate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services", "{{serviceId}}", "activate"]
+            },
+            "description": "Verifica que intentar activar un servicio que ya está activo responda 409 SERVICE_ALREADY_ACTIVE."
+          }
+        },
+        {
+          "name": "12. Desactivar un servicio ya inactivo (409 SERVICE_ALREADY_INACTIVE)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409 SERVICE_ALREADY_INACTIVE o 200 si estaba activo', function () {",
+                  "  pm.expect([200, 409]).to.include(pm.response.code);",
+                  "  if (pm.response.code === 409) {",
+                  "    pm.expect(pm.response.json().error.code).to.eql('SERVICE_ALREADY_INACTIVE');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [{ "key": "Content-Type", "value": "application/json" }],
+            "body": {
+              "mode": "raw",
+              "raw": "{}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services/{{serviceId}}/deactivate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services", "{{serviceId}}", "deactivate"]
+            },
+            "description": "Si el servicio ya fue desactivado previamente, una segunda llamada a `/deactivate` responde 409 SERVICE_ALREADY_INACTIVE."
+          }
+        },
+        {
+          "name": "13. Acceso administrativo sin autenticación o sin rol ADMIN (401 UNAUTHORIZED / 403 FORBIDDEN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Con servidor sin DEV_AUTH_ROLE responde 401; con DEV_AUTH_ROLE=OPERATOR responde 403', function () {",
+                  "  pm.expect([200, 401, 403]).to.include(pm.response.code);",
+                  "  if (pm.response.code === 401) {",
+                  "    pm.expect(pm.response.json().error.code).to.eql('UNAUTHORIZED');",
+                  "  }",
+                  "  if (pm.response.code === 403) {",
+                  "    pm.expect(pm.response.json().error.code).to.eql('FORBIDDEN');",
+                  "  }",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "X-User-Role",
+                "value": "ADMIN"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "catalog", "admin", "services"]
+            },
+            "description": "Verifica que `X-User-Role: ADMIN` enviado por el cliente es ignorado: responde 401 UNAUTHORIZED si el servidor se inició sin `DEV_AUTH_ROLE`, o 403 FORBIDDEN si se inició con `DEV_AUTH_ROLE=OPERATOR`."
+          }
+        }
+      ]
+    }
+  ]
+}

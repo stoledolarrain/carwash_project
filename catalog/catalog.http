@@ -1,0 +1,253 @@
+###############################################################################
+# Catalog Service — Archivo de pruebas HTTP para VS Code REST Client
+#
+# Variables reutilizables:
+# - @baseUrl: URL base de Catalog Service (puerto 3002 por defecto).
+# - @serviceId: UUID del servicio de prueba (se captura automáticamente al ejecutar
+#   la petición # @name createService, o puede reemplazarse manualmente).
+# - @missingId: UUID válido que no existe en la base de datos.
+#
+# NOTA SOBRE AUTENTICACIÓN Y AUTORIZACIÓN (/api/catalog/admin/*):
+# - Identity Service y API Gateway aún no están integrados, por lo que NO se utiliza
+#   ni se inventa un token JWT (adminToken).
+# - Por seguridad, el middleware `requireRole` NO confía en encabezados enviados por el
+#   cliente como `X-User-Role: ADMIN`.
+# - Para probar las operaciones administrativas (200/201), inicia el servicio con el
+#   contexto de desarrollo del lado del servidor:
+#     npm run dev:admin        (o establece DEV_AUTH_ROLE=ADMIN en .env / entorno)
+# - Para probar el caso 401 UNAUTHORIZED, inicia el servicio de forma normal (`npm start`
+#   sin DEV_AUTH_ROLE).
+# - Para probar el caso 403 FORBIDDEN, inicia el servicio con `DEV_AUTH_ROLE=OPERATOR`.
+###############################################################################
+
+@baseUrl = http://localhost:3002
+@serviceId = {{createService.response.body.id}}
+@missingId = 99999999-9999-4999-8999-999999999999
+
+
+###############################################################################
+# 1. HEALTH
+###############################################################################
+
+### 1.1 Comprobar que Catalog Service está activo (200 OK)
+GET {{baseUrl}}/health
+Accept: application/json
+
+
+###############################################################################
+# 2. OPERACIONES ADMINISTRATIVAS Y RECORRIDO PRINCIPAL (Requiere DEV_AUTH_ROLE=ADMIN)
+###############################################################################
+
+### 2.1 Crear un servicio de prueba (201 Created) — guarda su UUID en @serviceId
+# @name createService
+POST {{baseUrl}}/api/catalog/admin/services
+Content-Type: application/json
+
+{
+  "name": "TEST - Lavado Integral",
+  "description": "Servicio de prueba manual: lavado exterior, interior y aspirado",
+  "price": 80.50,
+  "currency": "BOB",
+  "estimatedDuration": 45
+}
+
+### 2.2 Listar todos los servicios desde administración (activos e inactivos) (200 OK)
+GET {{baseUrl}}/api/catalog/admin/services?page=1&pageSize=20
+Accept: application/json
+
+### 2.3 Filtrar servicios administrativos por estado activo (200 OK)
+GET {{baseUrl}}/api/catalog/admin/services?isActive=true&page=1&pageSize=10
+Accept: application/json
+
+### 2.4 Filtrar servicios administrativos usando parámetro status=inactive (200 OK)
+GET {{baseUrl}}/api/catalog/admin/services?status=inactive&page=1&pageSize=10
+Accept: application/json
+
+
+###############################################################################
+# 3. CONSULTAS PÚBLICAS Y CONSULTA POR LOTE (WASH ORDER)
+###############################################################################
+
+### 3.1 Listar catálogo público (únicamente servicios activos) (200 OK)
+GET {{baseUrl}}/api/catalog/services
+Accept: application/json
+
+### 3.2 Listar catálogo público con paginación explícita (200 OK)
+GET {{baseUrl}}/api/catalog/services?page=1&pageSize=10
+Accept: application/json
+
+### 3.3 Consultar el servicio creado por su UUID en el endpoint público (200 OK)
+GET {{baseUrl}}/api/catalog/services/{{serviceId}}
+Accept: application/json
+
+### 3.4 Consulta por lote para Wash Order (incluye existentes, inactivos y notFound) (200 OK)
+POST {{baseUrl}}/api/catalog/services/batch
+Content-Type: application/json
+
+{
+  "ids": [
+    "{{serviceId}}",
+    "{{missingId}}"
+  ]
+}
+
+
+###############################################################################
+# 4. ACTUALIZACIÓN, CAMBIO DE PRECIO, DESACTIVACIÓN Y REACTIVACIÓN
+###############################################################################
+
+### 4.1 Actualizar datos generales del servicio (name, description, estimatedDuration) (200 OK)
+PUT {{baseUrl}}/api/catalog/admin/services/{{serviceId}}
+Content-Type: application/json
+
+{
+  "name": "TEST - Lavado Integral Premium",
+  "description": "Servicio actualizado: lavado exterior, interior, aspirado y silicona",
+  "estimatedDuration": 55
+}
+
+### 4.2 Cambiar el precio del servicio (200 OK)
+PATCH {{baseUrl}}/api/catalog/admin/services/{{serviceId}}/price
+Content-Type: application/json
+
+{
+  "price": 95.00,
+  "currency": "BOB"
+}
+
+### 4.3 Desactivar el servicio (200 OK, pasa a isActive: false)
+PATCH {{baseUrl}}/api/catalog/admin/services/{{serviceId}}/deactivate
+Content-Type: application/json
+
+{}
+
+### 4.4 Comprobar que el servicio inactivo NO se expone en el detalle público (404 SERVICE_NOT_FOUND)
+GET {{baseUrl}}/api/catalog/services/{{serviceId}}
+Accept: application/json
+
+### 4.5 Comprobar que el servicio inactivo SÍ se devuelve en la consulta por lote para Wash Order (200 OK con isActive: false)
+POST {{baseUrl}}/api/catalog/services/batch
+Content-Type: application/json
+
+{
+  "ids": [
+    "{{serviceId}}"
+  ]
+}
+
+### 4.6 Volver a activar el servicio (200 OK, pasa a isActive: true)
+PATCH {{baseUrl}}/api/catalog/admin/services/{{serviceId}}/activate
+Content-Type: application/json
+
+{}
+
+### 4.7 Comprobar que el servicio reactivado vuelve a responder en el detalle público (200 OK)
+GET {{baseUrl}}/api/catalog/services/{{serviceId}}
+Accept: application/json
+
+
+###############################################################################
+# 5. CASOS NEGATIVOS Y VALIDACIONES (400, 401, 403, 404, 409)
+###############################################################################
+
+### 5.1 UUID con formato inválido en ruta pública (400 VALIDATION_ERROR)
+GET {{baseUrl}}/api/catalog/services/no-es-un-uuid-valido
+Accept: application/json
+
+### 5.2 Servicio inexistente por UUID (404 SERVICE_NOT_FOUND)
+GET {{baseUrl}}/api/catalog/services/{{missingId}}
+Accept: application/json
+
+### 5.3 Crear servicio con nombre vacío (400 VALIDATION_ERROR)
+POST {{baseUrl}}/api/catalog/admin/services
+Content-Type: application/json
+
+{
+  "name": "   ",
+  "price": 50,
+  "estimatedDuration": 30
+}
+
+### 5.4 Crear servicio con nombre demasiado largo (> 100 caracteres) (400 VALIDATION_ERROR)
+POST {{baseUrl}}/api/catalog/admin/services
+Content-Type: application/json
+
+{
+  "name": "Nombre excesivamente largo que supera el limite maximo permitido de cien caracteres en el catalogo de servicios de lavado",
+  "price": 50,
+  "estimatedDuration": 30
+}
+
+### 5.5 Crear servicio con descripción de más de 500 caracteres (400 VALIDATION_ERROR)
+POST {{baseUrl}}/api/catalog/admin/services
+Content-Type: application/json
+
+{
+  "name": "TEST - Descripcion Larga",
+  "description": "123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901",
+  "price": 50,
+  "estimatedDuration": 30
+}
+
+### 5.6 Crear servicio con precio negativo (400 VALIDATION_ERROR)
+POST {{baseUrl}}/api/catalog/admin/services
+Content-Type: application/json
+
+{
+  "name": "TEST - Precio Negativo",
+  "price": -15.00,
+  "estimatedDuration": 30
+}
+
+### 5.7 Crear servicio con más de 2 decimales en el precio (400 VALIDATION_ERROR)
+POST {{baseUrl}}/api/catalog/admin/services
+Content-Type: application/json
+
+{
+  "name": "TEST - Tres Decimales",
+  "price": 45.125,
+  "estimatedDuration": 30
+}
+
+### 5.8 Crear servicio con duración igual a cero (400 VALIDATION_ERROR)
+POST {{baseUrl}}/api/catalog/admin/services
+Content-Type: application/json
+
+{
+  "name": "TEST - Duracion Cero",
+  "price": 45,
+  "estimatedDuration": 0
+}
+
+### 5.9 Crear servicio con moneda diferente de BOB (400 VALIDATION_ERROR)
+POST {{baseUrl}}/api/catalog/admin/services
+Content-Type: application/json
+
+{
+  "name": "TEST - Moneda USD",
+  "price": 45,
+  "currency": "USD",
+  "estimatedDuration": 30
+}
+
+### 5.10 Crear servicio con nombre duplicado ignorando mayúsculas y minúsculas (409 DUPLICATE_SERVICE_NAME)
+POST {{baseUrl}}/api/catalog/admin/services
+Content-Type: application/json
+
+{
+  "name": "test - lavado integral premium",
+  "price": 60,
+  "estimatedDuration": 30
+}
+
+### 5.11 Activar un servicio que ya está activo (409 SERVICE_ALREADY_ACTIVE)
+PATCH {{baseUrl}}/api/catalog/admin/services/{{serviceId}}/activate
+Content-Type: application/json
+
+{}
+
+### 5.12 Acceso administrativo sin autenticación (401 UNAUTHORIZED cuando el servidor corre sin DEV_AUTH_ROLE)
+# Nota: incluso enviando X-User-Role: ADMIN, el servidor lo ignora por seguridad.
+GET {{baseUrl}}/api/catalog/admin/services
+X-User-Role: ADMIN
+Accept: application/json
