@@ -19,7 +19,7 @@ Clean Architecture + DDD + CQRS, con la misma organización que Catalog Service.
 |---|---|---|
 | Domain | `src/domain/` | Agregado `User`, value objects (`Email`, `FullName`, `Role`, `PlainPassword`), eventos y errores de dominio. Sin dependencias externas. |
 | Application | `src/application/` | `commands/` (escritura), `queries/` (lectura), puertos (`UserRepository`, `PasswordHasher`, `TokenService`, `EventPublisher`), DTO y errores. |
-| Infrastructure | `src/infrastructure/` | Repositorio en memoria, bcrypt, JWT y publicador de eventos por consola. |
+| Infrastructure | `src/infrastructure/` | Repositorio PostgreSQL (y uno en memoria para pruebas), pool, migraciones, bcrypt, JWT y publicador de eventos por consola. |
 | Presentation | `src/presentation/` | Rutas Express 5, controladores, validadores HTTP y middlewares. |
 
 - `src/container.js` es el composition root: el único lugar donde se eligen las implementaciones de los puertos.
@@ -44,14 +44,23 @@ Clean Architecture + DDD + CQRS, con la misma organización que Catalog Service.
 
 ## 3. Ejecución
 
-Requiere Node.js 20 o superior.
+Requiere Node.js 20 o superior y PostgreSQL.
 
-```powershell
-cd identity
-npm install
-Copy-Item .env.example .env   # luego reemplazar JWT_SECRET por un valor aleatorio
-npm run dev                   # o: npm start
-```
+1. Crear la base de datos vacía, en pgAdmin o con `psql`:
+   ```sql
+   CREATE DATABASE identity_db;
+   ```
+2. Instalar y configurar:
+   ```powershell
+   cd identity
+   npm install
+   Copy-Item .env.example .env   # poner la contraseña de postgres en DATABASE_URL y un JWT_SECRET aleatorio
+   npm run dev                   # o: npm start
+   ```
+
+Al arrancar, el servicio verifica que está conectado a `identity_db` y aplica las migraciones pendientes de `migrations/`. Las tablas no se crean a mano. También se pueden aplicar sin levantar el servicio con `npm run migrate`. Las migraciones son idempotentes: se registran en `schema_migrations` y nunca borran datos.
+
+Si `DATABASE_URL` está vacío fuera de producción, el servicio usa memoria y los usuarios se pierden al reiniciar. En producción, sin `DATABASE_URL` el servicio no arranca.
 
 Para generar un secreto:
 
@@ -60,8 +69,6 @@ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 ```
 
 Al arrancar se crea el administrador inicial definido en `ADMIN_EMAIL` y `ADMIN_PASSWORD`, solo si no existe ningún usuario.
-
-> **Persistencia temporal en memoria:** los usuarios se pierden al reiniciar el servicio. Se reemplazará por PostgreSQL.
 
 ### Pruebas
 
@@ -72,6 +79,8 @@ npx jest tests/unit/domain/User.test.js   # un solo archivo
 npx jest -t "revoca"                      # por nombre de prueba
 ```
 
+`tests/integration/userRepository.contract.test.js` ejecuta las mismas pruebas contra el repositorio en memoria y contra PostgreSQL. Las de PostgreSQL crean un schema temporal `identity_test_*` dentro de `identity_db` y lo borran al terminar: nunca tocan las tablas reales. Si no hay `DATABASE_URL`, esas pruebas se omiten.
+
 ### Postman
 
 Importar `identity.postman_collection.json` y ejecutarla completa con el Collection Runner, en orden. Los tokens y los ids se guardan solos en las variables de la colección.
@@ -81,6 +90,7 @@ Importar `identity.postman_collection.json` y ejecutarla completa con el Collect
 | Variable | Descripción | Valor por defecto |
 |---|---|---|
 | `PORT` | Puerto HTTP | `3001` |
+| `DATABASE_URL` | Conexión a PostgreSQL. Debe apuntar a `identity_db`. Obligatorio en producción. | — |
 | `TRUST_PROXY` | Proxies de confianza delante del servicio. Usar `1` detrás del API Gateway para que el límite de login vea la IP real. | `0` |
 | `JWT_SECRET` | Secreto de firma HS256. **Obligatorio**, mínimo 32 caracteres. | — |
 | `JWT_EXPIRES_IN` | Duración del token | `1h` |
@@ -166,7 +176,6 @@ Hoy se escriben en consola con su topic y su sobre definitivos. El sobre es el m
 
 ## 9. Pendiente
 
-1. **PostgreSQL:** implementar `PgUserRepository` con el puerto `UserRepository`, migraciones y una base `identity_db` propia. Cambiar solo `src/container.js`.
-2. **Eventos reales:** publicar en Kafka con Transactional Outbox, como Catalog Service.
-3. **Docker:** `Dockerfile` y servicio en `docker-compose` junto a PostgreSQL.
-4. **Refresh tokens:** hoy el usuario vuelve a iniciar sesión cuando el token expira.
+1. **Eventos reales:** publicar en Kafka con Transactional Outbox, como Catalog Service.
+2. **Docker:** `Dockerfile` y servicio en `docker-compose` junto a PostgreSQL.
+3. **Refresh tokens:** hoy el usuario vuelve a iniciar sesión cuando el token expira.

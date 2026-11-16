@@ -1,5 +1,5 @@
 const { loadConfig } = require('./src/config/env');
-const { buildContainer } = require('./src/container');
+const { buildContainer, buildPersistence } = require('./src/container');
 const { createApp } = require('./src/app');
 
 async function main() {
@@ -11,7 +11,14 @@ async function main() {
     process.exit(1);
   }
 
-  const container = buildContainer({ config });
+  const persistence = await buildPersistence(config);
+  if (persistence.kind === 'postgres') {
+    console.log('[DB] Conectado a PostgreSQL (identity_db). Migraciones al día.');
+  } else {
+    console.warn('[DB] Sin DATABASE_URL: persistencia en memoria, los usuarios se pierden al reiniciar.');
+  }
+
+  const container = buildContainer({ config, repository: persistence.repository });
 
   const bootstrap = await container.commands.bootstrapAdmin.execute(config.bootstrapAdmin);
   if (bootstrap.created) {
@@ -23,18 +30,23 @@ async function main() {
   const app = createApp(container);
   const server = app.listen(config.port, () => {
     console.log(`Identity Service escuchando en el puerto ${config.port}`);
-    console.log('[AVISO] Persistencia en memoria: los usuarios se pierden al reiniciar (pendiente PostgreSQL).');
   });
 
   let shuttingDown = false;
-  const shutdown = (signal) => {
+  const shutdown = async (signal) => {
     if (shuttingDown) return;
     shuttingDown = true;
     console.log(`${signal} recibido, cerrando Identity Service...`);
-    server.close(() => process.exit(0));
+    try {
+      await new Promise((resolve) => server.close(resolve));
+      await persistence.close();
+    } catch (err) {
+      console.error('Error durante el cierre:', err.message);
+    }
+    process.exit(0);
   };
-  process.on('SIGINT', () => shutdown('SIGINT'));
-  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
 }
 
 main().catch((err) => {

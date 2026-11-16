@@ -1,4 +1,7 @@
 const InMemoryUserRepository = require('./infrastructure/persistence/InMemoryUserRepository');
+const PgUserRepository = require('./infrastructure/persistence/PgUserRepository');
+const { createPool, verifyDatabaseConnection } = require('./infrastructure/database/pool');
+const { runMigrations } = require('./infrastructure/database/migrate');
 const BcryptPasswordHasher = require('./infrastructure/security/BcryptPasswordHasher');
 const JwtTokenService = require('./infrastructure/security/JwtTokenService');
 const { ConsoleEventPublisher } = require('./infrastructure/messaging/ConsoleEventPublisher');
@@ -60,4 +63,28 @@ function buildContainer({
   return Object.freeze({ config, repository, passwordHasher, tokenService, eventPublisher, commands, queries });
 }
 
-module.exports = { buildContainer };
+/**
+ * Elige la persistencia según la configuración:
+ * - Con DATABASE_URL: PostgreSQL. Verifica que la base sea `identity_db` y aplica las migraciones pendientes
+ *   (idempotente), así el servicio arranca listo también dentro de Docker.
+ * - Sin DATABASE_URL (solo permitido fuera de producción): memoria.
+ *
+ * @returns {Promise<{ repository: object, kind: 'postgres' | 'memory', close: () => Promise<void> }>}
+ */
+async function buildPersistence(config) {
+  if (!config.databaseUrl) {
+    return { repository: new InMemoryUserRepository(), kind: 'memory', close: async () => {} };
+  }
+
+  const pool = createPool({ connectionString: config.databaseUrl });
+  try {
+    await verifyDatabaseConnection(pool);
+    await runMigrations({ pool });
+  } catch (err) {
+    await pool.end();
+    throw err;
+  }
+  return { repository: new PgUserRepository({ pool }), kind: 'postgres', close: () => pool.end() };
+}
+
+module.exports = { buildContainer, buildPersistence };

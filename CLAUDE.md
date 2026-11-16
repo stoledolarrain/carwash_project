@@ -11,9 +11,9 @@ Code, comments, READMEs, commit messages, and test descriptions are written in *
 | Folder | Status | Stack |
 |---|---|---|
 | `catalog/` | Complete, fully tested | Express 5, PostgreSQL (`pg`), Kafka (`kafkajs`), Jest + supertest |
-| `identity/` | Complete, tested; in-memory persistence (PostgreSQL pending) | Express 5, bcryptjs, jsonwebtoken, Jest + supertest |
+| `identity/` | Complete, tested, persisted in PostgreSQL | Express 5, PostgreSQL (`pg`), bcryptjs, jsonwebtoken, Jest + supertest |
 | `wash_order/` | Working prototype | Express 5, built-in `node:sqlite`, in-process EventEmitter |
-| `api-gateway/` | Only `package.json` exists (untracked) | Express 5 |
+| `api-gateway/` | Working, tested; routes Identity only so far | Express 5, hand-written `node:http` proxy, jsonwebtoken, cors, Jest + supertest |
 | `frontend/` | Vite + React 19 scaffold, untouched template | Vite, ESLint |
 
 Planned but not yet started: Customer/Vehicle, Payment, Notification services (see root `README.md`).
@@ -43,15 +43,30 @@ npx jest tests/unit                                 # unit only (no DB needed)
 ```powershell
 cd identity
 npm install
-Copy-Item .env.example .env   # JWT_SECRET (>= 32 chars) is mandatory: the service refuses to start without it
-npm run dev                   # or: npm start. Seeds the ADMIN_EMAIL/ADMIN_PASSWORD admin when no users exist
-npm test                      # no infrastructure needed
+Copy-Item .env.example .env   # set DATABASE_URL (identity_db) and JWT_SECRET (>= 32 chars, mandatory)
+npm run dev                   # or: npm start. Applies pending migrations, then seeds the ADMIN_EMAIL admin when no users exist
+npm run migrate               # apply migrations/*.sql without starting the server
+npm test
 ```
 - Same layering and composition-root pattern as catalog (`src/container.js`, `createApp(container, { logRequests })`), with its own `tests/unit/architecture.test.js`.
-- Persistence is `InMemoryUserRepository` behind the `UserRepository` port; data is lost on restart. The PostgreSQL repository should implement the same port and be swapped in only in `container.js`.
+- `buildPersistence(config)` in `container.js` picks `PgUserRepository` when `DATABASE_URL` is set (verifies the DB is literally `identity_db`, runs migrations on startup) and falls back to `InMemoryUserRepository` otherwise; the fallback is refused when `NODE_ENV=production`.
+- Repository `save(user, { expectedVersion })`: `null` means INSERT, a number means UPDATE guarded by optimistic concurrency. Both implementations share one contract suite in `tests/integration/userRepository.contract.test.js`; its PostgreSQL half runs in a throwaway `identity_test_*` schema and is skipped when `DATABASE_URL` is unset. No outbox yet: events are only logged by `ConsoleEventPublisher`.
 - Issues HS256 JWTs (`sub`, `role`, `tv`). `tv` is the user's `tokenVersion`, bumped on password/role change and deactivation, so `VerifyAccessToken` rejects older tokens. `POST /api/identity/auth/verify` exposes that check for the API Gateway.
 - Roles are `ADMIN`, `RECEPTIONIST`, `WASHER` (`src/domain/value-objects/Role.js`, with permission lists). No public sign-up: only admins create users.
 - `identity.postman_collection.json` runs end-to-end in order with the Collection Runner.
+
+### api-gateway (port 8080)
+```powershell
+cd api-gateway
+npm install
+Copy-Item .env.example .env   # JWT_SECRET/ISSUER/AUDIENCE must match identity/.env exactly
+npm run dev
+npm test                      # uses an in-process fake upstream; identity need not be running
+```
+- Single entry point for the frontend. Route table lives in `src/config/services.js` (prefix, target URL from env, `publicRoutes`, `blockedRoutes`); adding a service means one entry there plus its URL in `src/config/env.js`.
+- Default-deny: every route under a service prefix requires a valid HS256 JWT (signature, `exp`, `iss`, `aud`) unless listed in `publicRoutes`. Unknown `/api/*` paths and `blockedRoutes` (e.g. identity's internal `POST /auth/verify`) return 404.
+- `src/proxy/serviceProxy.js` is a hand-written `node:http` proxy: deliberately no `express.json()` (bodies stream through untouched), full path preserved, `Authorization` forwarded, `X-Forwarded-For` overwritten with the socket address. `http-proxy-middleware` v4 was rejected because it is ESM-only and this repo is CommonJS.
+- Downstream services must still verify the JWT themselves; the gateway does not inject identity headers. Identity needs `TRUST_PROXY=1` behind the gateway so its login rate limit sees client IPs.
 
 ### wash_order (port 3000)
 ```powershell

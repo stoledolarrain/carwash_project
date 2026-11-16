@@ -17,6 +17,13 @@ describe('Configuración (env)', () => {
     expect(config.bootstrapAdmin.email).toBeNull();
   });
 
+  it('exige DATABASE_URL en producción y lo permite vacío en desarrollo', () => {
+    expect(() => loadConfig({ JWT_SECRET: SECRET, NODE_ENV: 'production' })).toThrow(/DATABASE_URL/);
+    expect(loadConfig({ JWT_SECRET: SECRET }).databaseUrl).toBeNull();
+    const url = 'postgresql://postgres:x@localhost:5432/identity_db';
+    expect(loadConfig({ JWT_SECRET: SECRET, NODE_ENV: 'production', DATABASE_URL: url }).databaseUrl).toBe(url);
+  });
+
   it('lee TRUST_PROXY y limita el costo de bcrypt', () => {
     const config = loadConfig({ JWT_SECRET: SECRET, TRUST_PROXY: '1', BCRYPT_ROUNDS: '99' });
     expect(config.trustProxy).toBe(1);

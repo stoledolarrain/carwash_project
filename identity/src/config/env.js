@@ -25,8 +25,15 @@ function loadConfig(env = process.env) {
     );
   }
 
+  const nodeEnv = env.NODE_ENV || 'development';
+  const databaseUrl = env.DATABASE_URL || null;
+  if (nodeEnv === 'production' && !databaseUrl) {
+    throw new Error('DATABASE_URL es obligatorio en producción: sin base de datos los usuarios se perderían al reiniciar.');
+  }
+
   return Object.freeze({
-    nodeEnv: env.NODE_ENV || 'development',
+    nodeEnv,
+    databaseUrl,
     port: parsePort(env.PORT),
     // Número de proxies de confianza delante del servicio (1 detrás del API Gateway). 0 = ninguno.
     trustProxy: Number.parseInt(env.TRUST_PROXY, 10) > 0 ? Number.parseInt(env.TRUST_PROXY, 10) : false,

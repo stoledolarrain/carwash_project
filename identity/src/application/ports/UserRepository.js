@@ -14,8 +14,9 @@ class UserRepository {
   }
 
   /**
-   * Inserta o actualiza. Si el usuario ya existía y su versión guardada no coincide con la esperada,
-   * debe lanzar `ConcurrencyConflictError`.
+   * Sin `expectedVersion` (null) inserta un usuario nuevo; si el correo ya existe lanza `EmailAlreadyRegisteredError`.
+   * Con `expectedVersion` actualiza un usuario existente solo si su versión guardada es esa;
+   * si no coincide lanza `ConcurrencyConflictError`.
    * @param {import('../../domain/entities/User')} user
    * @param {{ expectedVersion?: number | null }} [options]
    */

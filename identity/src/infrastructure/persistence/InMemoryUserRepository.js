@@ -3,12 +3,13 @@ const User = require('../../domain/entities/User');
 const { ROLES } = require('../../domain/value-objects/Role');
 const {
   ConcurrencyConflictError,
-  EmailAlreadyRegisteredError
+  EmailAlreadyRegisteredError,
+  UserNotFoundError
 } = require('../../application/errors/ApplicationErrors');
 
 /**
- * Implementación temporal en memoria del puerto `UserRepository`.
- * Los datos se pierden al reiniciar el servicio. Se reemplazará por un repositorio PostgreSQL.
+ * Implementación en memoria del puerto `UserRepository`. Los datos se pierden al reiniciar.
+ * Se usa en las pruebas y en desarrollo cuando no hay DATABASE_URL; en uso real se usa `PgUserRepository`.
  *
  * Guarda snapshots (copias) y no las instancias, para que un agregado modificado fuera del repositorio
  * no altere lo "persistido" sin pasar por `save`, igual que ocurrirá con una base de datos real.
@@ -40,7 +41,14 @@ class InMemoryUserRepository extends UserRepository {
         throw new EmailAlreadyRegisteredError(snapshot.email);
       }
     }
-    if (stored && expectedVersion !== null && stored.version !== expectedVersion) {
+    // Mismas reglas que PgUserRepository: sin versión es un INSERT; con versión, un UPDATE condicionado.
+    if (expectedVersion === null && stored) {
+      throw new ConcurrencyConflictError(snapshot.id);
+    }
+    if (expectedVersion !== null && !stored) {
+      throw new UserNotFoundError(snapshot.id);
+    }
+    if (stored && stored.version !== expectedVersion) {
       throw new ConcurrencyConflictError(snapshot.id);
     }
 
