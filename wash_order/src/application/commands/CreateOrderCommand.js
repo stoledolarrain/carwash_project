@@ -23,15 +23,10 @@ class CreateOrderCommand {
 
     await this.repositorioOrdenes.save(nuevaOrden);
 
-    this.emisorEventos.emitir(EVENTOS.WASH_ORDER_CREATED, {
-      id: nuevaOrden.id,
-      placaVehiculo: nuevaOrden.placaVehiculo,
-      clienteId: nuevaOrden.clienteId,
-      servicios: nuevaOrden.servicios,
-      precioTotal: nuevaOrden.precioTotal,
-      estado: nuevaOrden.estado,
-      fechaCreacion: nuevaOrden.fechaCreacion
-    });
+    await this.emisorEventos.emitir(
+      EVENTOS.WASH_ORDER_CREATED,
+      nuevaOrden.toEventPayload()
+    );
 
     return nuevaOrden;
   }

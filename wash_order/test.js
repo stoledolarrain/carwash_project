@@ -1,19 +1,41 @@
 const assert = require('node:assert');
+const crypto = require('node:crypto');
 const aplicacion = require('./src/app');
+const { pool } = require('./src/infrastructure/database/postgres');
+const {
+  KafkaOrderEventPublisher,
+  busEventos,
+  TOPIC_ORDENES,
+  ORIGEN_SERVICIO
+} = require('./src/infrastructure/events/eventEmitter');
 
 async function ejecutarPruebas() {
   const servidor = aplicacion.listen(0);
   const { port } = servidor.address();
   const urlBase = `http://127.0.0.1:${port}/api/orders`;
+  const clienteUuid = crypto.randomUUID();
 
   try {
-    console.log('--- 1. Creando orden en estado inicial EN_ESPERA ---');
-    const respuestaCreacion = await fetch(urlBase, {
+    console.log('--- 0. Validando que clienteId rechace valores que no sean UUID ("CLI-100") ---');
+    const respuestaClienteInvalido = await fetch(urlBase, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         placaVehiculo: '1234-abc',
         clienteId: 'CLI-100',
+        servicios: ['LAVADO_BASICO']
+      })
+    });
+    assert.strictEqual(respuestaClienteInvalido.status, 400);
+    console.log('clienteId no-UUID rechazado correctamente.');
+
+    console.log('\n--- 1. Creando orden en estado inicial EN_ESPERA con clienteId UUID ---');
+    const respuestaCreacion = await fetch(urlBase, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        placaVehiculo: '1234-abc',
+        clienteId: clienteUuid,
         servicios: ['LAVADO_BASICO', 'ENCERADO'],
         precioTotal: 85.5
       })
@@ -23,7 +45,7 @@ async function ejecutarPruebas() {
     const ordenCreada = await respuestaCreacion.json();
     assert.strictEqual(ordenCreada.estado, 'EN_ESPERA');
     assert.strictEqual(ordenCreada.placaVehiculo, '1234-ABC');
-    assert.strictEqual(ordenCreada.clienteId, 'CLI-100');
+    assert.strictEqual(ordenCreada.clienteId, clienteUuid);
     assert.strictEqual(ordenCreada.precioTotal, 85.5);
     console.log('Orden creada correctamente:', ordenCreada);
 
@@ -81,7 +103,45 @@ async function ejecutarPruebas() {
     assert.ok(ordenEntregada.fechaEntrega);
     console.log('Orden entregada (ENTREGADO):', ordenEntregada);
 
-    console.log('\n--- 7. Consultando orden por ID y por placa (CQRS Lecturas) ---');
+    console.log('\n--- 7. Verificando contrato de publicación Kafka (topic, key, origen y payload completo) ---');
+    const mensajesKafkaCapturados = [];
+    const producerSimulado = {
+      connect: async () => {},
+      send: async (paquete) => {
+        mensajesKafkaCapturados.push(paquete);
+      },
+      disconnect: async () => {}
+    };
+    const publicadorPrueba = new KafkaOrderEventPublisher({ producer: producerSimulado });
+    await publicadorPrueba.emitir('WashDelivered', {
+      id: ordenEntregada.id,
+      placaVehiculo: ordenEntregada.placaVehiculo,
+      clienteId: ordenEntregada.clienteId,
+      servicios: ordenEntregada.servicios,
+      precioTotal: ordenEntregada.precioTotal,
+      responsableId: ordenEntregada.responsableId,
+      estado: ordenEntregada.estado,
+      fechaCreacion: ordenEntregada.fechaCreacion,
+      fechaEntrega: ordenEntregada.fechaEntrega
+    });
+
+    assert.strictEqual(mensajesKafkaCapturados.length, 1);
+    assert.strictEqual(mensajesKafkaCapturados[0].topic, TOPIC_ORDENES);
+    assert.strictEqual(mensajesKafkaCapturados[0].messages[0].key, ordenEntregada.id);
+    const sobreParseado = JSON.parse(mensajesKafkaCapturados[0].messages[0].value);
+    assert.strictEqual(sobreParseado.origen, ORIGEN_SERVICIO);
+    assert.strictEqual(sobreParseado.aggregateId, ordenEntregada.id);
+    assert.strictEqual(sobreParseado.datos.id, ordenEntregada.id);
+    assert.strictEqual(sobreParseado.datos.placaVehiculo, '1234-ABC');
+    assert.strictEqual(sobreParseado.datos.clienteId, clienteUuid);
+    assert.deepStrictEqual(sobreParseado.datos.servicios, ['LAVADO_BASICO', 'ENCERADO']);
+    assert.strictEqual(sobreParseado.datos.precioTotal, 85.5);
+    assert.strictEqual(sobreParseado.datos.estado, 'ENTREGADO');
+    assert.ok(sobreParseado.datos.fechaCreacion);
+    assert.ok(sobreParseado.datos.fechaEntrega);
+    console.log('Contrato de evento Kafka verificado:', sobreParseado);
+
+    console.log('\n--- 8. Consultando orden por ID y por placa (CQRS Lecturas) ---');
     const respuestaPorId = await fetch(`${urlBase}/${ordenCreada.id}`);
     assert.strictEqual(respuestaPorId.status, 200);
     const ordenConsultada = await respuestaPorId.json();
@@ -94,7 +154,7 @@ async function ejecutarPruebas() {
     assert.ok(Array.isArray(historialPlaca) && historialPlaca.length >= 1);
     console.log(`Historial para placa 1234-ABC: ${historialPlaca.length} orden(es) encontrada(s)`);
 
-    console.log('\n--- 8. Consultando resumen para el dashboard (CQRS Lectura) ---');
+    console.log('\n--- 9. Consultando resumen para el dashboard (CQRS Lectura) ---');
     const respuestaResumen = await fetch(`${urlBase}/summary`);
     assert.strictEqual(respuestaResumen.status, 200);
     const resumen = await respuestaResumen.json();
@@ -111,6 +171,8 @@ async function ejecutarPruebas() {
     console.log('\nTodas las pruebas y validaciones pasaron con éxito.');
   } finally {
     servidor.close();
+    await busEventos.desconectar();
+    await pool.end();
   }
 }
 
