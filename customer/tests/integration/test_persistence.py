@@ -15,6 +15,7 @@ from config.container import build_container
 from domain.entities.customer import Customer
 from domain.entities.vehicle import Vehicle
 from domain.value_objects.plate import Plate
+from infrastructure.models import OutboxEventModel
 from infrastructure.repositories import (
     DjangoCustomerRepository,
     DjangoVehicleRepository,
@@ -144,14 +145,17 @@ class TestPostgresVehiclePersistence:
 
 
 class TestPostgresRestoreAndTransactions:
-    def test_repositories_restore_entities_without_events_and_preserve_events_on_save(self) -> None:
+    def test_repositories_restore_entities_without_events_and_persist_events_to_outbox(self) -> None:
         customer_repo = DjangoCustomerRepository()
         vehicle_repo = DjangoVehicleRepository()
 
         customer = Customer.create(name="María", phone="70055555", email="maria@mail.com")
         customer_repo.save(customer)
-        # Guardar no debe consumir ni vaciar los eventos pendientes del agregado
-        assert len(customer.pull_domain_events()) == 1
+        # Guardar persiste atómicamente los eventos de dominio en outbox_events
+        assert customer.pull_domain_events() == ()
+        assert OutboxEventModel.objects.filter(
+            aggregate_id=customer.id, event_name="CustomerRegistered"
+        ).count() == 1
 
         restored_customer = customer_repo.find_by_id(customer.id)
         assert restored_customer is not None
@@ -161,13 +165,16 @@ class TestPostgresRestoreAndTransactions:
             plate="7777-XYZ", brand="Nissan", model="Versa", customer_id=customer.id
         )
         vehicle_repo.save(vehicle)
-        assert len(vehicle.pull_domain_events()) == 1
+        assert vehicle.pull_domain_events() == ()
+        assert OutboxEventModel.objects.filter(
+            aggregate_id=vehicle.id, event_name="VehicleRegistered"
+        ).count() == 1
 
         restored_vehicle = vehicle_repo.find_by_plate(Plate("7777-xyz"))
         assert restored_vehicle is not None
         assert restored_vehicle.pull_domain_events() == ()
 
-    def test_unit_of_work_rolls_back_all_changes_on_exception(self) -> None:
+    def test_unit_of_work_rolls_back_all_changes_and_outbox_on_exception(self) -> None:
         customer_repo = DjangoCustomerRepository()
         uow = DjangoUnitOfWork()
         customer = Customer.create(name="Debe Revertirse", phone="70066666")
@@ -178,3 +185,4 @@ class TestPostgresRestoreAndTransactions:
                 raise RuntimeError("fallo simulado")
 
         assert customer_repo.find_by_id(customer.id) is None
+        assert OutboxEventModel.objects.filter(aggregate_id=customer.id).count() == 0

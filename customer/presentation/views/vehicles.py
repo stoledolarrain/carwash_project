@@ -12,6 +12,9 @@ from presentation.serializers import (
     ChangeVehicleCustomerInputSerializer,
     RegisterVehicleInputSerializer,
     UpdateVehicleInputSerializer,
+    parse_history_query_params,
+    serialize_history_item,
+    serialize_page,
     serialize_vehicle,
 )
 
@@ -81,3 +84,19 @@ class VehicleCustomerView(APIView):
             customer_id=validated["customerId"],
         )
         return Response(serialize_vehicle(dto), status=status.HTTP_200_OK)
+
+
+class VehicleHistoryView(APIView):
+    """GET /api/customer/vehicles/{id}/history."""
+
+    def get(self, request, vehicle_id: str) -> Response:
+        params = parse_history_query_params(request.query_params)
+        container = get_container()
+        page_dto = container.get_vehicle_history.execute(
+            vehicle_id=vehicle_id,
+            **params,
+        )
+        return Response(
+            serialize_page(page_dto, serialize_history_item),
+            status=status.HTTP_200_OK,
+        )

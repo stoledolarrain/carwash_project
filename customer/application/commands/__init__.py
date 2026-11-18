@@ -1,6 +1,7 @@
 """Commands (CQRS - escritura) de la capa Application."""
 
 from application.commands.activate_customer import ActivateCustomer
+from application.commands.apply_wash_order_event import ApplyWashOrderEvent
 from application.commands.change_vehicle_customer import ChangeVehicleCustomer
 from application.commands.deactivate_customer import DeactivateCustomer
 from application.commands.register_customer import RegisterCustomer
@@ -16,4 +17,5 @@ __all__ = [
     "RegisterVehicle",
     "UpdateVehicle",
     "ChangeVehicleCustomer",
+    "ApplyWashOrderEvent",
 ]

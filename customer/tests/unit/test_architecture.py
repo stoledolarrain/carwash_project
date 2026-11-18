@@ -95,11 +95,17 @@ def test_application_depends_only_on_domain_and_stdlib() -> None:
 def test_presentation_does_not_import_orm_directly() -> None:
     violations: list[str] = []
     presentation_dir = CUSTOMER_ROOT / "presentation"
+    forbidden_prefixes = (
+        "django.db",
+        "infrastructure.models",
+        "infrastructure.repositories",
+        "confluent_kafka",
+    )
 
     for py_file in sorted(presentation_dir.rglob("*.py")):
         for module_name in _iter_imported_modules(py_file):
-            if module_name.startswith("django.db") or module_name.startswith("infrastructure.models"):
+            if module_name.startswith(forbidden_prefixes):
                 rel = py_file.relative_to(CUSTOMER_ROOT)
                 violations.append(f"{rel} importa '{module_name}' directamente desde Presentation")
 
-    assert violations == [], "Presentation no debe acoplarse al ORM:\n" + "\n".join(violations)
+    assert violations == [], "Presentation no debe acoplarse a ORM ni Kafka:\n" + "\n".join(violations)

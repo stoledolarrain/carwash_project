@@ -1,0 +1,229 @@
+###############################################################################
+# Customer / Vehicle Service — Pruebas manuales HTTP (VS Code REST Client)
+#
+# Orden recomendado de ejecución:
+#   1. Ejecutar Health (1.1) para verificar que el servicio escucha en :3003.
+#   2. Pegar en @token un JWT real emitido por Identity Service (rol ADMIN o
+#      RECEPTIONIST; el rol WASHER responderá 403 FORBIDDEN).
+#      Nota: JWT_SECRET en customer/.env debe coincidir con identity/.env.
+#   3. Ejecutar 2.1 (Crear cliente) -> guarda su UUID en @customerId.
+#   4. Ejecutar 2.2 a 2.6 para probar consulta, edición, desactivar y activar.
+#   5. Ejecutar 3.1 (Crear vehículo) -> guarda su UUID en @vehicleId.
+#   6. Ejecutar 3.2 a 3.7 para consultar por ID/placa, editar, asociar/desasociar
+#      y listar los vehículos del cliente.
+#   7. Ejecutar 4.1 y 4.2 para consultar el historial por cliente y por vehículo.
+#   8. Ejecutar la sección 5 para comprobar respuestas de error (400/401/404/409).
+###############################################################################
+
+@baseUrl = http://localhost:3003
+@token = PEGA_AQUI_TU_JWT_DE_IDENTITY
+@customerId = {{createCustomer.response.body.id}}
+@vehicleId = {{createVehicle.response.body.id}}
+@plate = 4821-ABC
+@missingId = 99999999-9999-4999-8999-999999999999
+
+
+###############################################################################
+# 1. HEALTH (Público, sin autenticación)
+###############################################################################
+
+### 1.1 Verificar disponibilidad del servicio (200 OK)
+GET {{baseUrl}}/health
+Accept: application/json
+
+
+###############################################################################
+# 2. CLIENTES (/api/customer/customers) — Requiere JWT ADMIN o RECEPTIONIST
+###############################################################################
+
+### 2.1 Registrar un cliente (201 Created) — captura @customerId automáticamente
+# @name createCustomer
+POST {{baseUrl}}/api/customer/customers
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "Andrea Rojas",
+  "phone": "+591 700-12345",
+  "email": "andrea.rojas@correo.com"
+}
+
+### 2.2 Listar y buscar clientes con filtros y paginación (200 OK)
+GET {{baseUrl}}/api/customer/customers?query=Andrea&is_active=true&page=1&page_size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 2.3 Obtener un cliente por UUID (200 OK)
+GET {{baseUrl}}/api/customer/customers/{{customerId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 2.4 Actualizar datos básicos del cliente (200 OK)
+PATCH {{baseUrl}}/api/customer/customers/{{customerId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "name": "Andrea Rojas Paz",
+  "phone": "+591 700-54321",
+  "email": "andrea.paz@correo.com"
+}
+
+### 2.5 Desactivar cliente (200 OK -> isActive: false)
+PATCH {{baseUrl}}/api/customer/customers/{{customerId}}/deactivate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{}
+
+### 2.6 Reactivar cliente (200 OK -> isActive: true)
+PATCH {{baseUrl}}/api/customer/customers/{{customerId}}/activate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{}
+
+
+###############################################################################
+# 3. VEHÍCULOS (/api/customer/vehicles) — Requiere JWT ADMIN o RECEPTIONIST
+###############################################################################
+
+### 3.1 Registrar un vehículo sin cliente inicial (201 Created) — captura @vehicleId
+# @name createVehicle
+POST {{baseUrl}}/api/customer/vehicles
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "plate": "{{plate}}",
+  "brand": "Toyota",
+  "model": "Corolla",
+  "color": "Gris",
+  "customerId": null
+}
+
+### 3.2 Obtener un vehículo por UUID (200 OK)
+GET {{baseUrl}}/api/customer/vehicles/{{vehicleId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 3.3 Buscar un vehículo por placa (200 OK — normaliza espacios y mayúsculas)
+GET {{baseUrl}}/api/customer/vehicles/by-plate/{{plate}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 3.4 Actualizar marca, modelo o color del vehículo (200 OK — placa inmutable)
+PATCH {{baseUrl}}/api/customer/vehicles/{{vehicleId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "brand": "Toyota",
+  "model": "Corolla Cross",
+  "color": "Blanco"
+}
+
+### 3.5 Asociar o cambiar el cliente de un vehículo (200 OK)
+PATCH {{baseUrl}}/api/customer/vehicles/{{vehicleId}}/customer
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "customerId": "{{customerId}}"
+}
+
+### 3.6 Consultar vehículos asociados a un cliente (200 OK paginado)
+GET {{baseUrl}}/api/customer/customers/{{customerId}}/vehicles?page=1&page_size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 3.7 Desasociar el cliente de un vehículo enviando customerId: null (200 OK)
+PATCH {{baseUrl}}/api/customer/vehicles/{{vehicleId}}/customer
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "customerId": null
+}
+
+### 3.8 Volver a asociar el vehículo al cliente (opcional antes de revisar historial)
+PATCH {{baseUrl}}/api/customer/vehicles/{{vehicleId}}/customer
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "customerId": "{{customerId}}"
+}
+
+
+###############################################################################
+# 4. HISTORIAL DE ATENCIÓN — Proyección local alimentada por eventos Wash Order
+###############################################################################
+
+### 4.1 Consultar historial paginado de un cliente (200 OK)
+GET {{baseUrl}}/api/customer/customers/{{customerId}}/history?page=1&page_size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 4.2 Consultar historial paginado de un vehículo (200 OK)
+GET {{baseUrl}}/api/customer/vehicles/{{vehicleId}}/history?page=1&page_size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 4.3 Consultar historial filtrado por estado (EN_ESPERA | EN_PROCESO | LISTO | ENTREGADO)
+GET {{baseUrl}}/api/customer/vehicles/{{vehicleId}}/history?status=ENTREGADO&page=1&page_size=20
+Authorization: Bearer {{token}}
+Accept: application/json
+
+
+###############################################################################
+# 5. CASOS NEGATIVOS Y VALIDACIONES (400, 401, 404, 409)
+###############################################################################
+
+### 5.1 Solicitud protegida sin token JWT (401 UNAUTHORIZED)
+GET {{baseUrl}}/api/customer/customers
+Accept: application/json
+
+### 5.2 Registrar vehículo con placa duplicada (409 DUPLICATE_PLATE)
+POST {{baseUrl}}/api/customer/vehicles
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "plate": "{{plate}}",
+  "brand": "Suzuki",
+  "model": "Swift"
+}
+
+### 5.3 Intentar modificar la placa en PATCH /vehicles/{id} (400 VALIDATION_ERROR)
+PATCH {{baseUrl}}/api/customer/vehicles/{{vehicleId}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{
+  "plate": "9999-ZZZ"
+}
+
+### 5.4 Consultar cliente inexistente (404 CUSTOMER_NOT_FOUND)
+GET {{baseUrl}}/api/customer/customers/{{missingId}}
+Authorization: Bearer {{token}}
+Accept: application/json
+
+### 5.5 Activar un cliente que ya está activo (409 CUSTOMER_ALREADY_ACTIVE)
+PATCH {{baseUrl}}/api/customer/customers/{{customerId}}/activate
+Authorization: Bearer {{token}}
+Content-Type: application/json
+Accept: application/json
+
+{}

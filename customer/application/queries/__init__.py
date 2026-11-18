@@ -1,8 +1,10 @@
 """Queries (CQRS - lectura) de la capa Application."""
 
 from application.queries.get_customer_by_id import GetCustomerById
+from application.queries.get_customer_history import GetCustomerHistory
 from application.queries.get_vehicle_by_id import GetVehicleById
 from application.queries.get_vehicle_by_plate import GetVehicleByPlate
+from application.queries.get_vehicle_history import GetVehicleHistory
 from application.queries.list_vehicles_by_customer import ListVehiclesByCustomer
 from application.queries.search_customers import SearchCustomers
 
@@ -12,4 +14,6 @@ __all__ = [
     "GetVehicleById",
     "GetVehicleByPlate",
     "ListVehiclesByCustomer",
+    "GetCustomerHistory",
+    "GetVehicleHistory",
 ]

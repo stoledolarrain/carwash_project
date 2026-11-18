@@ -10,6 +10,7 @@ from application.errors import CustomerNotFoundError, DuplicatePlateError
 from domain.entities.vehicle import Vehicle
 from domain.value_objects.plate import Plate
 from infrastructure.models import VehicleModel
+from infrastructure.outbox import DjangoOutboxRepository
 
 PG_UNIQUE_VIOLATION = "23505"
 PG_FOREIGN_KEY_VIOLATION = "23503"
@@ -36,8 +37,13 @@ def _extract_pg_sqlstate(error: IntegrityError) -> str | None:
 class DjangoVehicleRepository:
     """Persiste y consulta el agregado Vehicle en PostgreSQL mediante Django ORM."""
 
+    def __init__(self, *, outbox_repository: DjangoOutboxRepository | None = None) -> None:
+        self._outbox = (
+            outbox_repository if outbox_repository is not None else DjangoOutboxRepository()
+        )
+
     def save(self, vehicle: Vehicle) -> None:
-        """Inserta o actualiza el vehículo traduciendo violaciones de integridad de PostgreSQL."""
+        """Inserta o actualiza el vehículo y registra sus eventos de dominio en outbox_events."""
         try:
             VehicleModel.objects.update_or_create(
                 id=vehicle.id,
@@ -59,6 +65,10 @@ class DjangoVehicleRepository:
             if sqlstate == PG_FOREIGN_KEY_VIOLATION or "customer_id" in message:
                 raise CustomerNotFoundError(str(vehicle.customer_id)) from exc
             raise
+
+        events = vehicle.pull_domain_events()
+        if events:
+            self._outbox.save_all(events)
 
     def find_by_id(self, vehicle_id: UUID) -> Vehicle | None:
         record = VehicleModel.objects.filter(id=vehicle_id).first()

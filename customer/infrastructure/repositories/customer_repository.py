@@ -9,6 +9,7 @@ from django.db.models.functions import Lower
 
 from domain.entities.customer import Customer
 from infrastructure.models import CustomerModel
+from infrastructure.outbox import DjangoOutboxRepository
 
 
 def _to_domain(record: CustomerModel) -> Customer:
@@ -26,8 +27,13 @@ def _to_domain(record: CustomerModel) -> Customer:
 class DjangoCustomerRepository:
     """Persiste y consulta el agregado Customer en PostgreSQL mediante Django ORM."""
 
+    def __init__(self, *, outbox_repository: DjangoOutboxRepository | None = None) -> None:
+        self._outbox = (
+            outbox_repository if outbox_repository is not None else DjangoOutboxRepository()
+        )
+
     def save(self, customer: Customer) -> None:
-        """Inserta o actualiza el cliente sin consumir sus eventos de dominio pendientes."""
+        """Inserta o actualiza el cliente y registra sus eventos de dominio en outbox_events."""
         CustomerModel.objects.update_or_create(
             id=customer.id,
             defaults={
@@ -39,6 +45,9 @@ class DjangoCustomerRepository:
                 "updated_at": customer.updated_at,
             },
         )
+        events = customer.pull_domain_events()
+        if events:
+            self._outbox.save_all(events)
 
     def find_by_id(self, customer_id: UUID) -> Customer | None:
         record = CustomerModel.objects.filter(id=customer_id).first()

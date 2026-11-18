@@ -9,6 +9,7 @@ from presentation.views.customers import (
     CustomerCollectionView,
     CustomerDeactivateView,
     CustomerDetailView,
+    CustomerHistoryView,
     CustomerVehiclesView,
 )
 from presentation.views.vehicles import (
@@ -16,6 +17,7 @@ from presentation.views.vehicles import (
     VehicleCollectionView,
     VehicleCustomerView,
     VehicleDetailView,
+    VehicleHistoryView,
 )
 
 urlpatterns = [
@@ -37,6 +39,11 @@ urlpatterns = [
         CustomerVehiclesView.as_view(),
         name="customer-vehicles",
     ),
+    path(
+        "customers/<str:customer_id>/history",
+        CustomerHistoryView.as_view(),
+        name="customer-history",
+    ),
     # Vehículos (by-plate antes que <vehicle_id> para evitar colisión de ruta)
     path("vehicles", VehicleCollectionView.as_view(), name="vehicle-create"),
     path(
@@ -49,5 +56,10 @@ urlpatterns = [
         "vehicles/<str:vehicle_id>/customer",
         VehicleCustomerView.as_view(),
         name="vehicle-customer",
+    ),
+    path(
+        "vehicles/<str:vehicle_id>/history",
+        VehicleHistoryView.as_view(),
+        name="vehicle-history",
     ),
 ]
