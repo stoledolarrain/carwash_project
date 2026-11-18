@@ -14,7 +14,12 @@ def test_django_loads_expected_settings_without_connecting_to_postgres() -> None
     """Django debe cargar su configuración apuntando a customer_db y con DRF registrado."""
     assert settings.PORT == 3003
     assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql"
-    assert settings.DATABASES["default"]["NAME"] == EXPECTED_DATABASE
+    assert settings.ENV_CONFIG.database["NAME"] == EXPECTED_DATABASE
+    # pytest-django renombra DATABASES['default']['NAME'] a test_customer_db al correr tests con BD.
+    assert settings.DATABASES["default"]["NAME"] in {
+        EXPECTED_DATABASE,
+        f"test_{EXPECTED_DATABASE}",
+    }
     assert apps.is_installed("rest_framework")
     assert apps.is_installed("infrastructure")
     assert apps.is_installed("presentation")

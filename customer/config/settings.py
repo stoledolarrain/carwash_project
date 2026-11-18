@@ -29,10 +29,11 @@ MIDDLEWARE = [
 ROOT_URLCONF = "config.urls"
 WSGI_APPLICATION = "config.wsgi.application"
 ASGI_APPLICATION = "config.asgi.application"
+APPEND_SLASH = False
 
 # Base de datos exclusiva: customer_db (no se conecta al cargar settings).
 DATABASES = {
-    "default": ENV_CONFIG.database,
+    "default": dict(ENV_CONFIG.database),
 }
 
 # Configuración base de Django REST Framework sin dependencia de django.contrib.auth.
@@ -43,8 +44,14 @@ REST_FRAMEWORK = {
     "DEFAULT_PARSER_CLASSES": [
         "rest_framework.parsers.JSONParser",
     ],
-    "DEFAULT_AUTHENTICATION_CLASSES": [],
-    "DEFAULT_PERMISSION_CLASSES": [],
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "presentation.authentication.JwtAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+        "presentation.permissions.CanManageCustomers",
+    ],
+    "EXCEPTION_HANDLER": "presentation.exception_handler.custom_exception_handler",
     "UNAUTHENTICATED_USER": None,
     "UNAUTHENTICATED_TOKEN": None,
 }
