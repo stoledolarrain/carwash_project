@@ -1,0 +1,36 @@
+services:
+  notification-db:
+    image: postgres:16-alpine
+    container_name: notification-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: carwash_notifications
+    ports:
+      - "5435:5432"
+    volumes:
+      - notification_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d carwash_notifications"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  notification-service:
+    build: .
+    container_name: notification-api
+    ports:
+      - "3004:3004"
+    environment:
+      PORT: 3004
+      DB_HOST: notification-db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: carwash_notifications
+    depends_on:
+      notification-db:
+        condition: service_healthy
+
+volumes:
+  notification_pgdata:
