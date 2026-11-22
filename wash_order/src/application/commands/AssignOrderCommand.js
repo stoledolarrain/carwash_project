@@ -17,12 +17,10 @@ class AssignOrderCommand {
 
     await this.repositorioOrdenes.save(orden);
 
-    this.emisorEventos.emitir(EVENTOS.WASH_STARTED, {
-      id: orden.id,
-      placaVehiculo: orden.placaVehiculo,
-      responsableId: orden.responsableId,
-      estado: orden.estado
-    });
+    await this.emisorEventos.emitir(
+      EVENTOS.WASH_STARTED,
+      orden.toEventPayload()
+    );
 
     return orden;
   }

@@ -1,0 +1,743 @@
+{
+  "info": {
+    "_postman_id": "8c5f3a21-6e44-4b92-9c1a-7d3e2f1098a4",
+    "name": "Customer / Vehicle Service — Car Wash Platform",
+    "description": "Colección de pruebas manuales para Customer / Vehicle Service (puerto 3003).\n\nPasos previos:\n1. Inicia el servidor: `python manage.py runserver 3003`.\n2. Obtén un JWT desde Identity Service (rol ADMIN o RECEPTIONIST) y pégalo en la variable de colección `token`.\n3. Ejecuta las carpetas en orden: Health -> Clientes -> Vehículos -> Historial -> Casos de error.\n\nLas peticiones de creación guardan automáticamente `customerId` y `vehicleId` en las variables de la colección.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:3003",
+      "type": "string"
+    },
+    {
+      "key": "token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "customerId",
+      "value": "11111111-1111-4111-8111-111111111111",
+      "type": "string"
+    },
+    {
+      "key": "vehicleId",
+      "value": "22222222-2222-4222-8222-222222222222",
+      "type": "string"
+    },
+    {
+      "key": "plate",
+      "value": "4821-ABC",
+      "type": "string"
+    },
+    {
+      "key": "missingId",
+      "value": "99999999-9999-4999-8999-999999999999",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "Health",
+      "item": [
+        {
+          "name": "1. GET /health — Estado del servicio",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK en JSON', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.response.to.be.json;",
+                  "});",
+                  "pm.test('Devuelve status ok y service customer-service', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.status).to.eql('ok');",
+                  "  pm.expect(body.service).to.eql('customer-service');",
+                  "  pm.expect(body.timestamp).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": ["{{baseUrl}}"],
+              "path": ["health"]
+            },
+            "description": "Verifica disponibilidad del microservicio sin requerir autenticación."
+          }
+        }
+      ]
+    },
+    {
+      "name": "Clientes",
+      "item": [
+        {
+          "name": "1. POST /api/customer/customers — Registrar cliente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201 Created en JSON', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  pm.response.to.be.json;",
+                  "});",
+                  "pm.test('Devuelve cliente válido y guarda customerId', function () {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.id).to.be.a('string');",
+                  "  pm.expect(body.name).to.be.a('string');",
+                  "  pm.expect(body.phone).to.be.a('string');",
+                  "  pm.expect(body.isActive).to.eql(true);",
+                  "  pm.collectionVariables.set('customerId', body.id);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Andrea Rojas\",\n  \"phone\": \"+591 700-12345\",\n  \"email\": \"andrea.rojas@correo.com\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/customers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "customers"]
+            }
+          }
+        },
+        {
+          "name": "2. GET /api/customer/customers — Listar y buscar clientes",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK con estructura paginada', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.items).to.be.an('array');",
+                  "  pm.expect(body.total).to.be.a('number');",
+                  "  pm.expect(body.page).to.eql(1);",
+                  "  pm.expect(body.pageSize).to.eql(20);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/customers?query=Andrea&is_active=true&page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "customers"],
+              "query": [
+                { "key": "query", "value": "Andrea" },
+                { "key": "is_active", "value": "true" },
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "3. GET /api/customer/customers/:id — Obtener cliente por ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK con el cliente consultado', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.id).to.eql(pm.collectionVariables.get('customerId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/customers/{{customerId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "customers", "{{customerId}}"]
+            }
+          }
+        },
+        {
+          "name": "4. PATCH /api/customer/customers/:id — Actualizar cliente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y actualiza los datos básicos', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.name).to.eql('Andrea Rojas Paz');",
+                  "  pm.expect(body.phone).to.eql('+59170054321');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Andrea Rojas Paz\",\n  \"phone\": \"+591 700-54321\",\n  \"email\": \"andrea.paz@correo.com\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/customers/{{customerId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "customers", "{{customerId}}"]
+            }
+          }
+        },
+        {
+          "name": "5. PATCH /api/customer/customers/:id/deactivate — Desactivar cliente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK con isActive en false', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().isActive).to.eql(false);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/customers/{{customerId}}/deactivate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "customers", "{{customerId}}", "deactivate"]
+            }
+          }
+        },
+        {
+          "name": "6. PATCH /api/customer/customers/:id/activate — Activar cliente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK con isActive en true', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().isActive).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": { "mode": "raw", "raw": "{}" },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/customers/{{customerId}}/activate",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "customers", "{{customerId}}", "activate"]
+            }
+          }
+        },
+        {
+          "name": "7. GET /api/customer/customers/:id/vehicles — Listar vehículos del cliente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK con listado paginado de vehículos', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.items).to.be.an('array');",
+                  "  pm.expect(body.total).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/customers/{{customerId}}/vehicles?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "customers", "{{customerId}}", "vehicles"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Vehículos",
+      "item": [
+        {
+          "name": "1. POST /api/customer/vehicles — Registrar vehículo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201 Created y guarda vehicleId', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.id).to.be.a('string');",
+                  "  pm.expect(body.plate).to.be.a('string');",
+                  "  pm.collectionVariables.set('vehicleId', body.id);",
+                  "  pm.collectionVariables.set('plate', body.plate);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plate\": \"{{plate}}\",\n  \"brand\": \"Toyota\",\n  \"model\": \"Corolla\",\n  \"color\": \"Gris\",\n  \"customerId\": null\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/vehicles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "vehicles"]
+            }
+          }
+        },
+        {
+          "name": "2. GET /api/customer/vehicles/:id — Obtener vehículo por ID",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK con el vehículo', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('vehicleId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/vehicles/{{vehicleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "vehicles", "{{vehicleId}}"]
+            }
+          }
+        },
+        {
+          "name": "3. GET /api/customer/vehicles/by-plate/:plate — Buscar vehículo por placa",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y coincide la placa normalizada', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().plate).to.eql(pm.collectionVariables.get('plate'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/vehicles/by-plate/{{plate}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "vehicles", "by-plate", "{{plate}}"]
+            }
+          }
+        },
+        {
+          "name": "4. PATCH /api/customer/vehicles/:id — Actualizar marca, modelo o color",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK manteniendo placa inmutable', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.model).to.eql('Corolla Cross');",
+                  "  pm.expect(body.plate).to.eql(pm.collectionVariables.get('plate'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"brand\": \"Toyota\",\n  \"model\": \"Corolla Cross\",\n  \"color\": \"Blanco\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/vehicles/{{vehicleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "vehicles", "{{vehicleId}}"]
+            }
+          }
+        },
+        {
+          "name": "5. PATCH /api/customer/vehicles/:id/customer — Asociar cliente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK y asocia el customerId', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().customerId).to.eql(pm.collectionVariables.get('customerId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": \"{{customerId}}\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/vehicles/{{vehicleId}}/customer",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "vehicles", "{{vehicleId}}", "customer"]
+            }
+          }
+        },
+        {
+          "name": "6. PATCH /api/customer/vehicles/:id/customer — Desasociar cliente (null)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK dejando customerId en null', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json().customerId).to.eql(null);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"customerId\": null\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/vehicles/{{vehicleId}}/customer",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "vehicles", "{{vehicleId}}", "customer"]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Historial",
+      "item": [
+        {
+          "name": "1. GET /api/customer/customers/:id/history — Historial del cliente",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK con página de historial del cliente', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.items).to.be.an('array');",
+                  "  pm.expect(body.total).to.be.a('number');",
+                  "  pm.expect(body.page).to.eql(1);",
+                  "  pm.expect(body.pageSize).to.eql(20);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/customers/{{customerId}}/history?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "customers", "{{customerId}}", "history"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            }
+          }
+        },
+        {
+          "name": "2. GET /api/customer/vehicles/:id/history — Historial del vehículo",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200 OK con página de historial del vehículo', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body.items).to.be.an('array');",
+                  "  pm.expect(body.total).to.be.a('number');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/vehicles/{{vehicleId}}/history?page=1&page_size=20",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "vehicles", "{{vehicleId}}", "history"],
+              "query": [
+                { "key": "page", "value": "1" },
+                { "key": "page_size", "value": "20" }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "Casos de error",
+      "item": [
+        {
+          "name": "1. Sin token JWT (401 UNAUTHORIZED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 401 UNAUTHORIZED', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('UNAUTHORIZED');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/customers",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "customers"]
+            }
+          }
+        },
+        {
+          "name": "2. Placa duplicada (409 DUPLICATE_PLATE)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 409 DUPLICATE_PLATE', function () {",
+                  "  pm.response.to.have.status(409);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('DUPLICATE_PLATE');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plate\": \"{{plate}}\",\n  \"brand\": \"Suzuki\",\n  \"model\": \"Swift\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/vehicles",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "vehicles"]
+            }
+          }
+        },
+        {
+          "name": "3. Cliente inexistente (404 CUSTOMER_NOT_FOUND)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404 CUSTOMER_NOT_FOUND', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('CUSTOMER_NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/customers/{{missingId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "customers", "{{missingId}}"]
+            }
+          }
+        },
+        {
+          "name": "4. Intento de modificar placa (400 VALIDATION_ERROR)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 400 VALIDATION_ERROR', function () {",
+                  "  pm.response.to.have.status(400);",
+                  "  pm.expect(pm.response.json().error.code).to.eql('VALIDATION_ERROR');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              { "key": "Authorization", "value": "Bearer {{token}}" },
+              { "key": "Content-Type", "value": "application/json" },
+              { "key": "Accept", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"plate\": \"9999-ZZZ\"\n}"
+            },
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/vehicles/{{vehicleId}}",
+              "host": ["{{baseUrl}}"],
+              "path": ["api", "customer", "vehicles", "{{vehicleId}}"]
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

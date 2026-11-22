@@ -5,6 +5,11 @@ const EVENTOS = {
   WASH_DELIVERED: 'WashDelivered'
 };
 
+const TOPIC_ORDENES = 'wash-order.order.events';
+const ORIGEN_SERVICIO = 'wash-order-service';
+
 module.exports = {
-  EVENTOS
+  EVENTOS,
+  TOPIC_ORDENES,
+  ORIGEN_SERVICIO
 };

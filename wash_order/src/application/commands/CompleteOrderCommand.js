@@ -17,12 +17,10 @@ class CompleteOrderCommand {
 
     await this.repositorioOrdenes.save(orden);
 
-    this.emisorEventos.emitir(EVENTOS.WASH_COMPLETED, {
-      id: orden.id,
-      placaVehiculo: orden.placaVehiculo,
-      responsableId: orden.responsableId,
-      estado: orden.estado
-    });
+    await this.emisorEventos.emitir(
+      EVENTOS.WASH_COMPLETED,
+      orden.toEventPayload()
+    );
 
     return orden;
   }

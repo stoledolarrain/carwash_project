@@ -1,6 +1,8 @@
 const VehiclePlate = require('../value-objects/VehiclePlate');
 const { ESTADOS_ORDEN, obtenerInstanciaEstado } = require('../states/OrderState');
 
+const REGEX_UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 class WashOrder {
   #instanciaEstado;
 
@@ -17,6 +19,12 @@ class WashOrder {
   }) {
     const objetoPlaca = new VehiclePlate(placaVehiculo);
 
+    if (clienteId !== null && clienteId !== undefined) {
+      if (typeof clienteId !== 'string' || !REGEX_UUID.test(clienteId.trim())) {
+        throw new Error('El identificador del cliente (clienteId) debe ser un UUID válido o null.');
+      }
+    }
+
     if (!Array.isArray(servicios) || servicios.length === 0) {
       throw new Error('Debe especificar al menos un servicio.');
     }
@@ -29,7 +37,7 @@ class WashOrder {
 
     this.id = id;
     this.placaVehiculo = objetoPlaca.toString();
-    this.clienteId = clienteId;
+    this.clienteId = clienteId ? clienteId.trim() : null;
     this.servicios = servicios;
     this.precioTotal = precioTotal;
     this.responsableId = responsableId;
@@ -53,6 +61,25 @@ class WashOrder {
 
   entregarVehiculo() {
     this.#instanciaEstado.entregarVehiculo(this);
+  }
+
+  toEventPayload() {
+    const payload = {
+      id: this.id,
+      placaVehiculo: this.placaVehiculo,
+      clienteId: this.clienteId,
+      servicios: this.servicios,
+      precioTotal: this.precioTotal,
+      responsableId: this.responsableId,
+      estado: this.estado,
+      fechaCreacion: this.fechaCreacion
+    };
+
+    if (this.fechaEntrega) {
+      payload.fechaEntrega = this.fechaEntrega;
+    }
+
+    return payload;
   }
 }
 

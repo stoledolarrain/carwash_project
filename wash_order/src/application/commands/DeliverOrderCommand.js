@@ -17,13 +17,10 @@ class DeliverOrderCommand {
 
     await this.repositorioOrdenes.save(orden);
 
-    this.emisorEventos.emitir(EVENTOS.WASH_DELIVERED, {
-      id: orden.id,
-      placaVehiculo: orden.placaVehiculo,
-      responsableId: orden.responsableId,
-      estado: orden.estado,
-      fechaEntrega: orden.fechaEntrega
-    });
+    await this.emisorEventos.emitir(
+      EVENTOS.WASH_DELIVERED,
+      orden.toEventPayload()
+    );
 
     return orden;
   }

@@ -1,5 +1,5 @@
 const express = require('express');
-const SqliteWashOrderRepository = require('../../infrastructure/repositories/SqliteWashOrderRepository');
+const PostgresWashOrderRepository = require('../../infrastructure/repositories/PostgresWashOrderRepository');
 const { busEventos } = require('../../infrastructure/events/eventEmitter');
 const CreateOrderCommand = require('../../application/commands/CreateOrderCommand');
 const AssignOrderCommand = require('../../application/commands/AssignOrderCommand');
@@ -12,7 +12,7 @@ const WashOrderController = require('../controllers/WashOrderController');
 
 const enrutador = express.Router();
 
-const repositorioOrdenes = new SqliteWashOrderRepository();
+const repositorioOrdenes = new PostgresWashOrderRepository();
 const createOrderCommand = new CreateOrderCommand(repositorioOrdenes, busEventos);
 const assignOrderCommand = new AssignOrderCommand(repositorioOrdenes, busEventos);
 const completeOrderCommand = new CompleteOrderCommand(repositorioOrdenes, busEventos);
@@ -31,13 +31,11 @@ const controladorOrdenes = new WashOrderController({
   getOrdersByPlateQuery
 });
 
-// Queries (CQRS - Lectura)
 enrutador.get('/summary', controladorOrdenes.obtenerResumen);
 enrutador.get('/vehicle/:placa', controladorOrdenes.obtenerHistorialPorPlaca);
 enrutador.get('/', controladorOrdenes.obtenerHistorialPorPlaca);
 enrutador.get('/:id', controladorOrdenes.obtenerOrdenPorId);
 
-// Commands (CQRS - Escritura y Flujo de Estados)
 enrutador.post('/', controladorOrdenes.crearOrden);
 enrutador.post('/:id/start', controladorOrdenes.iniciarLavado);
 enrutador.post('/:id/complete', controladorOrdenes.completarLavado);

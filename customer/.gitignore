@@ -1,0 +1,19 @@
+# Entorno virtual Python independiente de Customer
+.venv/
+
+# Variables de entorno locales (contienen credenciales)
+.env
+
+# Bytecode y cachés de Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Cachés de pruebas y cobertura
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Bases de datos locales y logs
+*.sqlite3
+*.log
