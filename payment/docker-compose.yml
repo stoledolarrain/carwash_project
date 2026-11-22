@@ -1,0 +1,36 @@
+services:
+  payment-db:
+    image: postgres:16-alpine
+    container_name: payment-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: carwash_payments
+    ports:
+      - "5436:5432"
+    volumes:
+      - payment_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d carwash_payments"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  payment-service:
+    build: .
+    container_name: payment-api
+    ports:
+      - "3003:3003"
+    environment:
+      DB_HOST: payment-db
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: postgres
+      DB_NAME: carwash_payments
+      NOTIFICATION_URL: http://host.docker.internal:3004
+    depends_on:
+      payment-db:
+        condition: service_healthy
+
+volumes:
+  payment_pgdata:
