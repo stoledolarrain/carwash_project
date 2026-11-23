@@ -28,6 +28,9 @@ services:
       DB_PASSWORD: postgres
       DB_NAME: carwash_payments
       NOTIFICATION_URL: http://host.docker.internal:3004
+      JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET en payment/.env (el mismo de identity)}
+      JWT_ISSUER: ${JWT_ISSUER:-carwash-identity}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-carwash-platform}
     depends_on:
       payment-db:
         condition: service_healthy

@@ -3,6 +3,10 @@ package com.carwash.payment.infrastructure.messaging;
 import com.carwash.payment.application.commands.PaymentEventPublisher;
 import com.carwash.payment.domain.Payment;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
@@ -30,9 +34,13 @@ public class HttpNotificationEventPublisher implements PaymentEventPublisher {
                             payment.getCustomerName(), payment.getAmount(), payment.getMethod(), payment.getOrderId())
             );
 
-            restClient.post()
-                    .uri(notificationUrl + "/api/notifications")
-                    .body(payload)
+            RestClient.RequestBodySpec request = restClient.post().uri(notificationUrl + "/api/notifications");
+            // Notification exige JWT: se reenvía el token del usuario que registró el pago (ADMIN o RECEPTIONIST).
+            String authorization = currentAuthorizationHeader();
+            if (authorization != null) {
+                request = request.header(HttpHeaders.AUTHORIZATION, authorization);
+            }
+            request.body(payload)
                     .retrieve()
                     .toBodilessEntity();
 
@@ -40,5 +48,14 @@ public class HttpNotificationEventPublisher implements PaymentEventPublisher {
         } catch (Exception e) {
             System.err.println("⚠️ No se pudo notificar al servicio de notificaciones: " + e.getMessage());
         }
+    }
+
+    /** Token JWT de la petición en curso, tomado del contexto de Spring Security ya verificado. */
+    private static String currentAuthorizationHeader() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication instanceof JwtAuthenticationToken jwtAuthentication) {
+            return "Bearer " + jwtAuthentication.getToken().getTokenValue();
+        }
+        return null;
     }
 }

@@ -1,5 +1,11 @@
+require('dotenv').config({ quiet: true });
+
+// Si el .env no define JWT_SECRET, las pruebas usan uno propio. Debe fijarse antes de cargar la app.
+process.env.JWT_SECRET = process.env.JWT_SECRET || 'secreto-solo-para-las-pruebas-de-wash-order-0000';
+
 const assert = require('node:assert');
 const crypto = require('node:crypto');
+const jwt = require('jsonwebtoken');
 const aplicacion = require('./src/app');
 const { pool } = require('./src/infrastructure/database/postgres');
 const {
@@ -9,6 +15,25 @@ const {
   ORIGEN_SERVICIO
 } = require('./src/infrastructure/events/eventEmitter');
 
+/** Emite un JWT con el mismo formato que Identity Service, firmado con el JWT_SECRET de la prueba. */
+function emitirToken(role) {
+  return jwt.sign({ role, tv: 0 }, process.env.JWT_SECRET, {
+    algorithm: 'HS256',
+    subject: crypto.randomUUID(),
+    issuer: process.env.JWT_ISSUER || 'carwash-identity',
+    audience: process.env.JWT_AUDIENCE || 'carwash-platform',
+    expiresIn: '10m'
+  });
+}
+
+/** fetch que agrega `Authorization: Bearer <token>` a cada petición. */
+function fetchComo(token) {
+  return (url, opciones = {}) =>
+    fetch(url, { ...opciones, headers: { ...(opciones.headers || {}), Authorization: `Bearer ${token}` } });
+}
+
+const fetchAdmin = fetchComo(emitirToken('ADMIN'));
+
 async function ejecutarPruebas() {
   const servidor = aplicacion.listen(0);
   const { port } = servidor.address();
@@ -16,8 +41,19 @@ async function ejecutarPruebas() {
   const clienteUuid = crypto.randomUUID();
 
   try {
+    console.log('--- Seguridad: sin token -> 401 y un WASHER no puede crear órdenes -> 403 ---');
+    const respuestaSinToken = await fetch(urlBase);
+    assert.strictEqual(respuestaSinToken.status, 401);
+    const respuestaLavador = await fetchComo(emitirToken('WASHER'))(urlBase, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ placaVehiculo: '1234-abc', servicios: ['LAVADO_BASICO'] })
+    });
+    assert.strictEqual(respuestaLavador.status, 403);
+    console.log('Autenticación y autorización por rol verificadas.\n');
+
     console.log('--- 0. Validando que clienteId rechace valores que no sean UUID ("CLI-100") ---');
-    const respuestaClienteInvalido = await fetch(urlBase, {
+    const respuestaClienteInvalido = await fetchAdmin(urlBase, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -30,7 +66,7 @@ async function ejecutarPruebas() {
     console.log('clienteId no-UUID rechazado correctamente.');
 
     console.log('\n--- 1. Creando orden en estado inicial EN_ESPERA con clienteId UUID ---');
-    const respuestaCreacion = await fetch(urlBase, {
+    const respuestaCreacion = await fetchAdmin(urlBase, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -50,7 +86,7 @@ async function ejecutarPruebas() {
     console.log('Orden creada correctamente:', ordenCreada);
 
     console.log('\n--- 2. Validando Patrón State (intentar pasar de EN_ESPERA a LISTO sin iniciar lavado) ---');
-    const respuestaInvalida = await fetch(`${urlBase}/${ordenCreada.id}/complete`, {
+    const respuestaInvalida = await fetchAdmin(`${urlBase}/${ordenCreada.id}/complete`, {
       method: 'POST'
     });
 
@@ -59,7 +95,7 @@ async function ejecutarPruebas() {
     console.log('Transición inválida a LISTO bloqueada correctamente:', errorTransicion);
 
     console.log('\n--- 3. Asignando responsable e iniciando lavado (EN_ESPERA -> EN_PROCESO) ---');
-    const respuestaInicio = await fetch(`${urlBase}/${ordenCreada.id}/start`, {
+    const respuestaInicio = await fetchAdmin(`${urlBase}/${ordenCreada.id}/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -74,7 +110,7 @@ async function ejecutarPruebas() {
     console.log('Orden en proceso:', ordenEnProceso);
 
     console.log('\n--- 4. Validando bloqueo de entrega prematura (intentar pasar de EN_PROCESO a ENTREGADO) ---');
-    const respuestaEntregaInvalida = await fetch(`${urlBase}/${ordenCreada.id}/deliver`, {
+    const respuestaEntregaInvalida = await fetchAdmin(`${urlBase}/${ordenCreada.id}/deliver`, {
       method: 'POST'
     });
 
@@ -83,7 +119,7 @@ async function ejecutarPruebas() {
     console.log('Transición inválida a ENTREGADO bloqueada correctamente:', errorEntrega);
 
     console.log('\n--- 5. Finalizando lavado (EN_PROCESO -> LISTO) ---');
-    const respuestaFinalizacion = await fetch(`${urlBase}/${ordenCreada.id}/complete`, {
+    const respuestaFinalizacion = await fetchAdmin(`${urlBase}/${ordenCreada.id}/complete`, {
       method: 'POST'
     });
 
@@ -93,7 +129,7 @@ async function ejecutarPruebas() {
     console.log('Orden finalizada (LISTO):', ordenLista);
 
     console.log('\n--- 6. Entregando vehículo al cliente (LISTO -> ENTREGADO) ---');
-    const respuestaEntrega = await fetch(`${urlBase}/${ordenCreada.id}/deliver`, {
+    const respuestaEntrega = await fetchAdmin(`${urlBase}/${ordenCreada.id}/deliver`, {
       method: 'POST'
     });
 
@@ -142,20 +178,20 @@ async function ejecutarPruebas() {
     console.log('Contrato de evento Kafka verificado:', sobreParseado);
 
     console.log('\n--- 8. Consultando orden por ID y por placa (CQRS Lecturas) ---');
-    const respuestaPorId = await fetch(`${urlBase}/${ordenCreada.id}`);
+    const respuestaPorId = await fetchAdmin(`${urlBase}/${ordenCreada.id}`);
     assert.strictEqual(respuestaPorId.status, 200);
     const ordenConsultada = await respuestaPorId.json();
     assert.strictEqual(ordenConsultada.id, ordenCreada.id);
     assert.strictEqual(ordenConsultada.estado, 'ENTREGADO');
 
-    const respuestaPorPlaca = await fetch(`${urlBase}/vehicle/1234-abc`);
+    const respuestaPorPlaca = await fetchAdmin(`${urlBase}/vehicle/1234-abc`);
     assert.strictEqual(respuestaPorPlaca.status, 200);
     const historialPlaca = await respuestaPorPlaca.json();
     assert.ok(Array.isArray(historialPlaca) && historialPlaca.length >= 1);
     console.log(`Historial para placa 1234-ABC: ${historialPlaca.length} orden(es) encontrada(s)`);
 
     console.log('\n--- 9. Consultando resumen para el dashboard (CQRS Lectura) ---');
-    const respuestaResumen = await fetch(`${urlBase}/summary`);
+    const respuestaResumen = await fetchAdmin(`${urlBase}/summary`);
     assert.strictEqual(respuestaResumen.status, 200);
     const resumen = await respuestaResumen.json();
     assert.ok(resumen.total >= 1);

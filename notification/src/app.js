@@ -5,6 +5,11 @@ const PostgresNotificationRepository = require('./infrastructure/database/Postgr
 const SendNotificationCommand = require('./application/commands/SendNotificationCommand');
 const GetNotificationsQuery = require('./application/queries/GetNotificationsQuery');
 const NotificationController = require('./presentation/NotificationController');
+const { cargarConfiguracionJwt, crearAutenticacionJwt } = require('./infrastructure/security/autenticacionJwt');
+const { requerirRol, ROLES_NOTIFICACIONES } = require('./presentation/middlewares/requerirRol');
+
+// Lanza un error al cargar si falta JWT_SECRET: el servicio no arranca sin poder autenticar.
+const autenticar = crearAutenticacionJwt(cargarConfiguracionJwt());
 
 const app = express();
 app.use(cors());
@@ -15,8 +20,10 @@ const sendNotificationCommand = new SendNotificationCommand(notificationReposito
 const getNotificationsQuery = new GetNotificationsQuery(notificationRepository);
 const notificationController = new NotificationController(sendNotificationCommand, getNotificationsQuery);
 
-app.post('/api/notifications', notificationController.send);
-app.get('/api/notifications', notificationController.getAll);
+// Todas las rutas de notificaciones exigen un JWT válido de Identity Service y rol ADMIN o RECEPTIONIST.
+const protegido = [autenticar, requerirRol(...ROLES_NOTIFICACIONES)];
+app.post('/api/notifications', ...protegido, notificationController.send);
+app.get('/api/notifications', ...protegido, notificationController.getAll);
 
 app.get('/health', (req, res) => {
   res.json({ service: 'notification-service', status: 'UP' });

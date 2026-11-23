@@ -27,6 +27,14 @@ describe('loadConfig', () => {
     expect(cfg.outbox).toEqual({ pollIntervalMs: 1500, batchSize: 25 });
   });
 
+  it('lee la configuración JWT con emisor y audiencia por defecto de Identity', () => {
+    expect(loadConfig({}).jwt).toEqual({ secret: null, issuer: 'carwash-identity', audience: 'carwash-platform' });
+    expect(loadConfig({ JWT_SECRET: 's'.repeat(40), JWT_AUDIENCE: 'x' }).jwt).toMatchObject({
+      secret: 's'.repeat(40),
+      audience: 'x'
+    });
+  });
+
   it('desactiva DEV_AUTH_ROLE automáticamente cuando NODE_ENV=production', () => {
     const cfg = loadConfig({ NODE_ENV: 'production', DEV_AUTH_ROLE: 'ADMIN' });
 

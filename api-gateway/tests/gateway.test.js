@@ -8,12 +8,12 @@ const { loadConfig } = require('../src/config/env');
 const SECRET = 'g'.repeat(48);
 const FRONTEND = 'http://localhost:5173';
 
-/** Microservicio falso: guarda lo que recibe y responde según la ruta. */
-function startFakeService() {
+/** Microservicio falso: guarda lo que recibe y responde según la ruta, indicando qué servicio es. */
+function startFakeService(name = 'identity', healthPath = '/health') {
   const received = [];
   const app = express();
   app.use(express.json());
-  app.get('/health', (_req, res) => res.json({ status: 'ok' }));
+  app.get(healthPath, (_req, res) => res.json({ status: 'ok' }));
   app.post('/api/identity/users', (req, res) => {
     received.push(req);
     res.location('/api/identity/users/123').status(201).json({ id: '123', ...req.body });
@@ -23,7 +23,7 @@ function startFakeService() {
   app.use((req, res) => {
     received.push(req);
     res.set('X-Request-Id', 'del-servicio').set('Access-Control-Allow-Origin', '*');
-    res.json({ method: req.method, url: req.originalUrl, body: req.body, headers: req.headers });
+    res.json({ service: name, method: req.method, url: req.originalUrl, body: req.body, headers: req.headers });
   });
   return new Promise((resolve) => {
     const server = app.listen(0, () => resolve({ server, received, url: `http://127.0.0.1:${server.address().port}` }));
@@ -41,9 +41,22 @@ function closedPortUrl() {
   });
 }
 
+/** Servicios falsos además de identity: nombre, variable de entorno y ruta de health. */
+const OTHER_SERVICES = [
+  ['catalog', 'CATALOG_SERVICE_URL', '/health'],
+  ['customer', 'CUSTOMER_SERVICE_URL', '/health'],
+  ['wash-order', 'WASH_ORDER_SERVICE_URL', '/health'],
+  ['payment', 'PAYMENT_SERVICE_URL', '/api/payments/health'],
+  ['notification', 'NOTIFICATION_SERVICE_URL', '/health']
+];
+const otherFakes = {};
+const otherServiceEnv = {};
+
+// Todas las URLs apuntan a servicios falsos: las pruebas nunca tocan servicios reales que estén corriendo.
 function buildConfig(identityUrl, overrides = {}) {
   return loadConfig({
     JWT_SECRET: SECRET,
+    ...otherServiceEnv,
     IDENTITY_SERVICE_URL: identityUrl,
     CORS_ORIGINS: FRONTEND,
     ...overrides
@@ -66,11 +79,18 @@ describe('API Gateway', () => {
   let app;
 
   beforeAll(async () => {
+    for (const [name, envVar, healthPath] of OTHER_SERVICES) {
+      otherFakes[name] = await startFakeService(name, healthPath);
+      otherServiceEnv[envVar] = otherFakes[name].url;
+    }
     fake = await startFakeService();
     app = createApp(buildConfig(fake.url), { logRequests: false });
   });
 
-  afterAll(() => new Promise((resolve) => fake.server.close(resolve)));
+  afterAll(async () => {
+    const servers = [fake, ...Object.values(otherFakes)].map((f) => f.server);
+    await Promise.all(servers.map((server) => new Promise((resolve) => server.close(resolve))));
+  });
 
   beforeEach(() => {
     fake.received.length = 0;
@@ -81,7 +101,15 @@ describe('API Gateway', () => {
       expect(() => loadConfig({ JWT_SECRET: 'corto' })).toThrow(/JWT_SECRET/);
       expect(() => loadConfig({ JWT_SECRET: SECRET, IDENTITY_SERVICE_URL: 'no-es-url' })).toThrow(/IDENTITY_SERVICE_URL/);
       const config = loadConfig({ JWT_SECRET: SECRET });
-      expect(config).toMatchObject({ port: 8080, services: { identity: 'http://localhost:3001' } });
+      expect(config.port).toBe(8080);
+      expect(config.services).toEqual({
+        identity: 'http://localhost:3001',
+        catalog: 'http://localhost:3002',
+        customer: 'http://localhost:3005',
+        washOrder: 'http://localhost:3000',
+        payment: 'http://localhost:3003',
+        notification: 'http://localhost:3004'
+      });
       expect(config.corsOrigins).toEqual([FRONTEND]);
     });
   });
@@ -97,12 +125,78 @@ describe('API Gateway', () => {
     it('GET /health/services responde 200 si los servicios están arriba y 503 si alguno cae', async () => {
       const up = await request(app).get('/health/services');
       expect(up.status).toBe(200);
-      expect(up.body.services).toEqual([expect.objectContaining({ service: 'identity', status: 'up' })]);
+      expect(up.body.services.map((s) => [s.service, s.status])).toEqual([
+        ['identity', 'up'],
+        ['catalog', 'up'],
+        ['customer', 'up'],
+        ['wash-order', 'up'],
+        ['payment', 'up'],
+        ['notification', 'up']
+      ]);
 
       const downApp = createApp(buildConfig(await closedPortUrl()), { logRequests: false });
       const down = await request(downApp).get('/health/services');
       expect(down.status).toBe(503);
       expect(down.body.status).toBe('degraded');
+      expect(down.body.services.filter((s) => s.status === 'down').map((s) => s.service)).toEqual(['identity']);
+    });
+  });
+
+  describe('Todos los microservicios', () => {
+    it('cada prefijo llega a su servicio con la ruta completa', async () => {
+      const auth = `Bearer ${token()}`;
+      const cases = [
+        ['/api/identity/auth/me', 'identity'],
+        ['/api/catalog/admin/services', 'catalog'],
+        ['/api/customer/customers?search=ana', 'customer'],
+        ['/api/orders/summary', 'wash-order'],
+        ['/api/payments?orderId=abc', 'payment'],
+        ['/api/notifications', 'notification']
+      ];
+      for (const [path, service] of cases) {
+        const res = await request(app).get(path).set('Authorization', auth);
+        expect(res.status).toBe(200);
+        expect(res.body).toMatchObject({ service, url: path });
+        expect(res.body.headers.authorization).toBe(auth);
+      }
+    });
+
+    it('todas las rutas no públicas exigen token', async () => {
+      const protectedRoutes = [
+        ['get', '/api/catalog/admin/services'],
+        ['post', '/api/catalog/admin/services'],
+        ['get', '/api/customer/customers'],
+        ['post', '/api/orders'],
+        ['get', '/api/orders/summary'],
+        ['post', '/api/payments'],
+        ['get', '/api/payments'],
+        ['get', '/api/notifications']
+      ];
+      for (const [method, path] of protectedRoutes) {
+        const res = await request(app)[method](path);
+        expect([method, path, res.status]).toEqual([method, path, 401]);
+      }
+    });
+
+    it('las consultas públicas de catalog pasan sin token, también con :id', async () => {
+      for (const path of ['/api/catalog/services', '/api/catalog/services/11111111-1111-4111-8111-111111111111']) {
+        const res = await request(app).get(path);
+        expect(res.status).toBe(200);
+        expect(res.body.service).toBe('catalog');
+      }
+      // El parámetro cubre un solo segmento: una subruta no queda pública por accidente.
+      const deeper = await request(app).get('/api/catalog/services/123/otra-cosa');
+      expect(deeper.status).toBe(401);
+    });
+
+    it('bloquea los endpoints internos de catalog y notification aunque haya token', async () => {
+      const auth = `Bearer ${token()}`;
+      const batch = await request(app).post('/api/catalog/services/batch').set('Authorization', auth).send({ ids: [] });
+      expect(batch.status).toBe(404);
+      const createNotification = await request(app).post('/api/notifications').set('Authorization', auth).send({});
+      expect(createNotification.status).toBe(404);
+      expect(otherFakes.catalog.received.filter((r) => r.method === 'POST')).toHaveLength(0);
+      expect(otherFakes.notification.received.filter((r) => r.method === 'POST')).toHaveLength(0);
     });
   });
 

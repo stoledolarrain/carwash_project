@@ -50,7 +50,12 @@ function loadConfig(env = process.env) {
       audience: env.JWT_AUDIENCE || 'carwash-platform'
     }),
     services: Object.freeze({
-      identity: parseServiceUrl('IDENTITY_SERVICE_URL', env.IDENTITY_SERVICE_URL || 'http://localhost:3001')
+      identity: parseServiceUrl('IDENTITY_SERVICE_URL', env.IDENTITY_SERVICE_URL || 'http://localhost:3001'),
+      catalog: parseServiceUrl('CATALOG_SERVICE_URL', env.CATALOG_SERVICE_URL || 'http://localhost:3002'),
+      customer: parseServiceUrl('CUSTOMER_SERVICE_URL', env.CUSTOMER_SERVICE_URL || 'http://localhost:3005'),
+      washOrder: parseServiceUrl('WASH_ORDER_SERVICE_URL', env.WASH_ORDER_SERVICE_URL || 'http://localhost:3000'),
+      payment: parseServiceUrl('PAYMENT_SERVICE_URL', env.PAYMENT_SERVICE_URL || 'http://localhost:3003'),
+      notification: parseServiceUrl('NOTIFICATION_SERVICE_URL', env.NOTIFICATION_SERVICE_URL || 'http://localhost:3004')
     }),
     corsOrigins: Object.freeze(
       (env.CORS_ORIGINS || 'http://localhost:5173')

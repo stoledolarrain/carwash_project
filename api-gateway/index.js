@@ -1,5 +1,6 @@
 const { loadConfig } = require('./src/config/env');
 const { createApp } = require('./src/app');
+const { buildServiceRoutes } = require('./src/config/services');
 
 let config;
 try {
@@ -12,8 +13,8 @@ try {
 const app = createApp(config);
 const server = app.listen(config.port, () => {
   console.log(`API Gateway escuchando en el puerto ${config.port}`);
-  for (const [name, url] of Object.entries(config.services)) {
-    console.log(`  /api/${name}/* -> ${url}`);
+  for (const route of buildServiceRoutes(config)) {
+    console.log(`  ${route.prefix.padEnd(20)} -> ${route.name.padEnd(13)} ${route.target}`);
   }
   console.log(`  CORS permitido para: ${config.corsOrigins.join(', ')}`);
 });
@@ -24,7 +25,6 @@ function shutdown(signal) {
   shuttingDown = true;
   console.log(`${signal} recibido, cerrando API Gateway...`);
   server.close(() => process.exit(0));
-  // Si alguna conexión queda colgada, no bloquear el cierre indefinidamente.
   setTimeout(() => process.exit(0), 5000).unref();
 }
 process.on('SIGINT', () => shutdown('SIGINT'));

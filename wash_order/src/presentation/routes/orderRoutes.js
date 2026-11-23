@@ -9,6 +9,7 @@ const GetOrdersSummaryQuery = require('../../application/queries/GetOrdersSummar
 const GetOrderByIdQuery = require('../../application/queries/GetOrderByIdQuery');
 const GetOrdersByPlateQuery = require('../../application/queries/GetOrdersByPlateQuery');
 const WashOrderController = require('../controllers/WashOrderController');
+const { requerirRol, ROLES } = require('../middlewares/requerirRol');
 
 const enrutador = express.Router();
 
@@ -31,14 +32,15 @@ const controladorOrdenes = new WashOrderController({
   getOrdersByPlateQuery
 });
 
-enrutador.get('/summary', controladorOrdenes.obtenerResumen);
-enrutador.get('/vehicle/:placa', controladorOrdenes.obtenerHistorialPorPlaca);
-enrutador.get('/', controladorOrdenes.obtenerHistorialPorPlaca);
-enrutador.get('/:id', controladorOrdenes.obtenerOrdenPorId);
+// La autenticación JWT se aplica en app.js a todo /api/orders; aquí se controla el rol de cada acción.
+enrutador.get('/summary', requerirRol(...ROLES.CONSULTAR), controladorOrdenes.obtenerResumen);
+enrutador.get('/vehicle/:placa', requerirRol(...ROLES.CONSULTAR), controladorOrdenes.obtenerHistorialPorPlaca);
+enrutador.get('/', requerirRol(...ROLES.CONSULTAR), controladorOrdenes.obtenerHistorialPorPlaca);
+enrutador.get('/:id', requerirRol(...ROLES.CONSULTAR), controladorOrdenes.obtenerOrdenPorId);
 
-enrutador.post('/', controladorOrdenes.crearOrden);
-enrutador.post('/:id/start', controladorOrdenes.iniciarLavado);
-enrutador.post('/:id/complete', controladorOrdenes.completarLavado);
-enrutador.post('/:id/deliver', controladorOrdenes.entregarVehiculo);
+enrutador.post('/', requerirRol(...ROLES.CREAR_Y_ASIGNAR), controladorOrdenes.crearOrden);
+enrutador.post('/:id/start', requerirRol(...ROLES.CREAR_Y_ASIGNAR), controladorOrdenes.iniciarLavado);
+enrutador.post('/:id/complete', requerirRol(...ROLES.FINALIZAR), controladorOrdenes.completarLavado);
+enrutador.post('/:id/deliver', requerirRol(...ROLES.ENTREGAR), controladorOrdenes.entregarVehiculo);
 
 module.exports = enrutador;

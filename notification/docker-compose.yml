@@ -28,6 +28,9 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: carwash_notifications
+      JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET en notification/.env (el mismo de identity)}
+      JWT_ISSUER: ${JWT_ISSUER:-carwash-identity}
+      JWT_AUDIENCE: ${JWT_AUDIENCE:-carwash-platform}
     depends_on:
       notification-db:
         condition: service_healthy

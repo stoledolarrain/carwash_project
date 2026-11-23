@@ -15,32 +15,39 @@ Punto de entrada único de la Plataforma de Gestión para Car Wash (Ingeniería 
 
 ## 2. Rutas
 
-| Prefijo | Servicio | Variable de entorno |
-|---|---|---|
-| `/api/identity/*` | Identity Service | `IDENTITY_SERVICE_URL` |
+| Prefijo | Servicio | Puerto local | Variable de entorno | ¿Verifica el JWT por su cuenta? |
+|---|---|---|---|---|
+| `/api/identity/*` | Identity | 3001 | `IDENTITY_SERVICE_URL` | Sí, y detecta tokens revocados |
+| `/api/catalog/*` | Catalog | 3002 | `CATALOG_SERVICE_URL` | Sí, con `JWT_SECRET` en su `.env` |
+| `/api/customer/*` | Customer / Vehicle | 3005 | `CUSTOMER_SERVICE_URL` | Sí |
+| `/api/orders/*` | Wash Order | 3000 | `WASH_ORDER_SERVICE_URL` | Sí |
+| `/api/payments/*` | Payment | 3003 | `PAYMENT_SERVICE_URL` | Sí (Spring Security) |
+| `/api/notifications/*` | Notification | 3004 | `NOTIFICATION_SERVICE_URL` | Sí |
+
+Todos los servicios vuelven a verificar el token y revisan el rol por su cuenta, aunque la petición llegue por el Gateway. Así nadie puede saltarse los permisos llamando directo al puerto de un servicio.
 
 Rutas propias del Gateway:
 
 | Método | Ruta | Descripción |
 |---|---|---|
 | `GET` | `/health` | Estado del Gateway |
-| `GET` | `/health/services` | Consulta el `/health` de cada microservicio. Responde 200 si todos están arriba y 503 si alguno falla |
+| `GET` | `/health/services` | Consulta el health de cada microservicio. Responde 200 si todos están arriba y 503 si alguno falla, indicando cuál. Payment tiene su health en `/api/payments/health`; los demás en `/health` |
 
 Política de acceso para las rutas de los servicios:
 
 | Caso | Resultado |
 |---|---|
 | Ningún servicio atiende la ruta | 404 `NOT_FOUND` |
-| Ruta interna bloqueada (`POST /api/identity/auth/verify`) | 404 `NOT_FOUND` |
-| Ruta pública (`POST /api/identity/auth/login`) | Pasa sin token |
+| Ruta interna bloqueada: `POST /api/identity/auth/verify`, `POST /api/catalog/services/batch` y `POST /api/notifications`. Otros servicios las llaman directamente | 404 `NOT_FOUND` |
+| Ruta pública: `POST /api/identity/auth/login`, `GET /api/catalog/services` y `GET /api/catalog/services/:id` | Pasa sin token |
 | Cualquier otra ruta | Exige `Authorization: Bearer <JWT>`. Sin token o con uno inválido o vencido responde 401 `INVALID_TOKEN` |
 
 Por defecto todo exige token. Es más seguro olvidarse de abrir una ruta que olvidarse de cerrarla.
 
 ### Agregar otro microservicio
 
-1. Agregar su URL en `src/config/env.js`, dentro de `services`, por ejemplo `CATALOG_SERVICE_URL`.
-2. Agregar una entrada en `src/config/services.js` con su prefijo, su URL y sus rutas públicas.
+1. Agregar su URL en `src/config/env.js`, dentro de `services`.
+2. Agregar una entrada en `src/config/services.js` con su prefijo, su URL, sus rutas públicas y bloqueadas y, si no es `/health`, su `healthPath`. Las rutas aceptan parámetros como `:id`.
 3. Agregar la variable en `.env` y `.env.example`.
 
 El servicio debe verificar el JWT por su cuenta con el mismo `JWT_SECRET`, `JWT_ISSUER` y `JWT_AUDIENCE`, y llenar `req.auth = { userId, role }`.
@@ -97,6 +104,11 @@ Importar `api-gateway.postman_collection.json`. Con identity y el Gateway corrie
 | `JWT_SECRET` | **Obligatorio.** Mismo valor que en Identity Service | — |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | Mismos valores que en Identity Service | `carwash-identity` / `carwash-platform` |
 | `IDENTITY_SERVICE_URL` | URL de Identity Service. En Docker será `http://identity:3001` | `http://localhost:3001` |
+| `CATALOG_SERVICE_URL` | URL de Catalog Service | `http://localhost:3002` |
+| `CUSTOMER_SERVICE_URL` | URL de Customer / Vehicle Service | `http://localhost:3005` |
+| `WASH_ORDER_SERVICE_URL` | URL de Wash Order Service | `http://localhost:3000` |
+| `PAYMENT_SERVICE_URL` | URL de Payment Service | `http://localhost:3003` |
+| `NOTIFICATION_SERVICE_URL` | URL de Notification Service | `http://localhost:3004` |
 | `CORS_ORIGINS` | Orígenes del frontend, separados por coma | `http://localhost:5173` |
 | `PROXY_TIMEOUT_MS` | Tiempo máximo de espera de un servicio | `10000` |
 | `RATE_LIMIT_MAX` / `RATE_LIMIT_WINDOW_MS` | Solicitudes por IP y ventana | `300` / `60000` |
@@ -119,6 +131,4 @@ Los errores propios de cada servicio, como 400, 403, 404 o 409, llegan al client
 
 ## 7. Pendiente
 
-1. Agregar las rutas de Catalog y Wash Order cuando sus servicios verifiquen el JWT.
-2. Agregar las rutas de los servicios restantes a medida que se construyan.
-3. Docker: usar los nombres de los contenedores en las URLs de los servicios.
+1. Docker: usar los nombres de los contenedores en las URLs de los servicios y publicar solo el puerto del Gateway.

@@ -29,6 +29,13 @@ function loadConfig(env = process.env) {
     port: parsePort(env.PORT),
     databaseUrl: env.DATABASE_URL || null,
     devAuthRole,
+    // JWT emitidos por Identity Service. Deben coincidir exactamente con identity/.env y api-gateway/.env.
+    // Sin JWT_SECRET el servicio no puede autenticar tokens (solo queda DEV_AUTH_ROLE en desarrollo).
+    jwt: Object.freeze({
+      secret: env.JWT_SECRET || null,
+      issuer: env.JWT_ISSUER || 'carwash-identity',
+      audience: env.JWT_AUDIENCE || 'carwash-platform'
+    }),
     kafka: Object.freeze({
       brokers: (env.KAFKA_BROKERS || 'localhost:9092')
         .split(',')

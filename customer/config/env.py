@@ -14,7 +14,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 EXPECTED_DATABASE = "customer_db"
-DEFAULT_PORT = 3003
+DEFAULT_PORT = 3005
 MIN_JWT_SECRET_LENGTH = 32
 VALID_PG_SCHEMES = frozenset({"postgres", "postgresql"})
 

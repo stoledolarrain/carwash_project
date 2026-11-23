@@ -2,33 +2,38 @@ const { buildContainer } = require('./src/container');
 const { createApp } = require('./src/app');
 const { closePool } = require('./src/infrastructure/database/pool');
 const { closeKafkaEventPublisher } = require('./src/infrastructure/messaging/KafkaEventPublisher');
+const { createJwtAuthContextMiddleware } = require('./src/infrastructure/security/jwtAuthContext');
 
 const container = buildContainer();
+const { config } = container;
 
 /**
- * En desarrollo local (mientras Identity Service y API Gateway aún no están integrados),
- * si se define `DEV_AUTH_ROLE` (por ejemplo `DEV_AUTH_ROLE=ADMIN` o `DEV_AUTH_ROLE=OPERATOR`),
- * se inyecta un contexto `req.auth` controlado desde la configuración del servidor
- * (nunca desde encabezados arbitrarios del cliente).
+ * Autenticación:
+ * - Con JWT_SECRET: se verifican los JWT de Identity Service (modo normal, también detrás del API Gateway).
+ * - Sin JWT_SECRET y con DEV_AUTH_ROLE (solo fuera de producción): se inyecta un rol fijo de desarrollo,
+ *   controlado desde la configuración del servidor y nunca desde encabezados del cliente.
+ * - Sin ninguno: las rutas administrativas responden 401.
  */
-const devAuthMiddleware =
-  container.config.devAuthRole && container.config.nodeEnv !== 'production'
-    ? (req, _res, next) => {
-        req.auth = {
-          userId: 'dev-local-user',
-          role: container.config.devAuthRole
-        };
-        next();
-      }
-    : undefined;
+let authContextMiddleware;
+let authMode;
+if (config.jwt.secret) {
+  authContextMiddleware = createJwtAuthContextMiddleware(config.jwt);
+  authMode = 'JWT de Identity Service';
+} else if (config.devAuthRole && config.nodeEnv !== 'production') {
+  authContextMiddleware = (req, _res, next) => {
+    req.auth = { userId: 'dev-local-user', role: config.devAuthRole };
+    next();
+  };
+  authMode = `[DEV AUTH] rol fijo ${config.devAuthRole}`;
+} else {
+  authMode = 'sin autenticación configurada: las rutas /admin responderán 401';
+}
 
-const app = createApp(container, { authContextMiddleware: devAuthMiddleware });
+const app = createApp(container, { authContextMiddleware });
 
-const server = app.listen(container.config.port, () => {
-  console.log(`Catalog Service escuchando en el puerto ${container.config.port}`);
-  if (devAuthMiddleware) {
-    console.log(`[DEV AUTH] Contexto de desarrollo activo con rol: ${container.config.devAuthRole}`);
-  }
+const server = app.listen(config.port, () => {
+  console.log(`Catalog Service escuchando en el puerto ${config.port}`);
+  console.log(`Autenticación: ${authMode}`);
   container.outboxWorker.start();
 });
 

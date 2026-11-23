@@ -2,7 +2,7 @@
   "info": {
     "_postman_id": "8d1f0b6a-2c47-4e93-a5d1-7b9e3c2f4a10",
     "name": "API Gateway — Plataforma de Gestión Car Wash",
-    "description": "Pruebas de la plataforma entrando por el API Gateway (punto de entrada único).\n\nRequisitos: Identity Service corriendo (puerto 3001) y el Gateway corriendo (puerto 8080), con el mismo JWT_SECRET.\nEjecute la colección completa con el Collection Runner, en orden. Los tokens e ids se guardan solos.\n\n0. API Gateway: health propio y de los servicios, X-Request-Id, rutas bloqueadas y desconocidas.\n1 a 4. Flujo de Identity a través del Gateway: login, usuarios, contraseña propia y casos de error.\n\nNota: Identity permite 10 intentos de login por minuto por IP. Si recibe 429, espere un minuto.",
+    "description": "Pruebas de la plataforma entrando por el API Gateway (punto de entrada único).\n\nRequisitos: el Gateway (8080) y los microservicios corriendo con el mismo JWT_SECRET: identity 3001, catalog 3002, payment 3003, notification 3004, customer 3005 y wash_order 3000. Las carpetas 0 a 4 solo necesitan identity.\nEjecute la colección completa con el Collection Runner, en orden. Los tokens e ids se guardan solos.\n\n0. API Gateway: health propio y de los servicios, X-Request-Id, rutas bloqueadas y desconocidas.\n5. Microservicios conectados: una petición por servicio.\n1 a 4. Flujo de Identity a través del Gateway: login, usuarios, contraseña propia y casos de error.\n\nNota: Identity permite 10 intentos de login por minuto por IP. Si recibe 429, espere un minuto.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -59,6 +59,16 @@
     {
       "key": "missingId",
       "value": "99999999-9999-4999-8999-999999999999",
+      "type": "string"
+    },
+    {
+      "key": "serviceId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "serviceName",
+      "value": "",
       "type": "string"
     }
   ],
@@ -121,7 +131,7 @@
                 "services"
               ]
             },
-            "description": "Consulta el /health de cada microservicio. Responde 503 si alguno está caído."
+            "description": "Consulta el health de los seis microservicios. Responde 200 si todos están arriba y 503 si alguno está caído; el cuerpo indica cuál."
           },
           "event": [
             {
@@ -129,10 +139,11 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('Responde 200', function () {",
-                  "  pm.response.to.have.status(200);",
-                  "});",
-                  "pm.test('Identity arriba', () => { const s = pm.response.json().services.find(x => x.service === 'identity'); pm.expect(s.status).to.eql('up'); });"
+                  "pm.test('Responde 200 o 503', () => pm.expect([200, 503]).to.include(pm.response.code));",
+                  "const services = pm.response.json().services;",
+                  "pm.test('Informa los seis microservicios', () => pm.expect(services.map(s => s.service)).to.eql(['identity', 'catalog', 'customer', 'wash-order', 'payment', 'notification']));",
+                  "pm.test('Identity arriba', () => pm.expect(services.find(s => s.service === 'identity').status).to.eql('up'));",
+                  "console.log('Estado de los servicios:', services.map(s => s.service + '=' + s.status).join(', '));"
                 ]
               }
             }
@@ -1919,6 +1930,509 @@
                   "});",
                   "pm.test('Código de error FORBIDDEN_OPERATION', function () {",
                   "  pm.expect(pm.response.json().error.code).to.eql('FORBIDDEN_OPERATION');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "5. Microservicios conectados",
+      "description": "Una petición por microservicio a través del Gateway. Requiere que cada servicio esté corriendo con su base de datos.",
+      "item": [
+        {
+          "name": "Catalog — Listado público sin token",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/services",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "services"
+              ]
+            },
+            "description": "Ruta pública de Catalog: no necesita token."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Catalog — ADMIN crea un servicio",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "admin",
+                "services"
+              ]
+            },
+            "description": "Catalog verifica el JWT de Identity y exige rol ADMIN.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"{{serviceName}}\",\n  \"description\": \"Creado desde la colección del Gateway\",\n  \"price\": 45,\n  \"estimatedDuration\": 35\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('serviceName', 'Lavado Postman ' + Date.now());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 201', function () {",
+                  "  pm.response.to.have.status(201);",
+                  "});",
+                  "pm.collectionVariables.set('serviceId', pm.response.json().id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Catalog — Detalle público por id",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/services/{{serviceId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "services",
+                "{{serviceId}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "pm.test('Mismo servicio', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('serviceId')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Catalog — WASHER no puede administrar (403)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{userToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/admin/services",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "admin",
+                "services"
+              ]
+            },
+            "description": "El usuario del personal (RECEPTIONIST en este punto) no es ADMIN: Catalog responde 403."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 403', function () {",
+                  "  pm.response.to.have.status(403);",
+                  "});",
+                  "pm.test('Código de error FORBIDDEN', function () {",
+                  "  pm.expect(pm.response.json().error.code).to.eql('FORBIDDEN');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Catalog — Consulta por lote bloqueada (404)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/catalog/services/batch",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "catalog",
+                "services",
+                "batch"
+              ]
+            },
+            "description": "Endpoint interno para Wash Order: el Gateway no lo expone.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"ids\": []\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test('Código de error NOT_FOUND', function () {",
+                  "  pm.expect(pm.response.json().error.code).to.eql('NOT_FOUND');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Customer — Listar clientes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/customer/customers",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "customer",
+                "customers"
+              ]
+            },
+            "description": "Customer verifica el mismo JWT y permite ADMIN y RECEPTIONIST."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wash Order — Resumen de órdenes",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "summary"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Wash Order — Sin token (401)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/orders/summary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "orders",
+                "summary"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 401', function () {",
+                  "  pm.response.to.have.status(401);",
+                  "});",
+                  "pm.test('Código de error INVALID_TOKEN', function () {",
+                  "  pm.expect(pm.response.json().error.code).to.eql('INVALID_TOKEN');",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Payment — Listar pagos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/payments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "payments"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Notification — Listar notificaciones",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notifications"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 200', function () {",
+                  "  pm.response.to.have.status(200);",
+                  "});"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "Notification — Crear desde afuera bloqueado (404)",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{adminToken}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/notifications",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "notifications"
+              ]
+            },
+            "description": "Las notificaciones las crean otros servicios llamando directo a Notification.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"orderId\": \"x\",\n  \"eventType\": \"Prueba\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('Responde 404', function () {",
+                  "  pm.response.to.have.status(404);",
+                  "});",
+                  "pm.test('Código de error NOT_FOUND', function () {",
+                  "  pm.expect(pm.response.json().error.code).to.eql('NOT_FOUND');",
                   "});"
                 ]
               }

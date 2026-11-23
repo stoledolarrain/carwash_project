@@ -2,7 +2,7 @@
 # Customer / Vehicle Service — Pruebas manuales HTTP (VS Code REST Client)
 #
 # Orden recomendado de ejecución:
-#   1. Ejecutar Health (1.1) para verificar que el servicio escucha en :3003.
+#   1. Ejecutar Health (1.1) para verificar que el servicio escucha en :3005.
 #   2. Pegar en @token un JWT real emitido por Identity Service (rol ADMIN o
 #      RECEPTIONIST; el rol WASHER responderá 403 FORBIDDEN).
 #      Nota: JWT_SECRET en customer/.env debe coincidir con identity/.env.
@@ -15,7 +15,7 @@
 #   8. Ejecutar la sección 5 para comprobar respuestas de error (400/401/404/409).
 ###############################################################################
 
-@baseUrl = http://localhost:3003
+@baseUrl = http://localhost:3005
 @token = PEGA_AQUI_TU_JWT_DE_IDENTITY
 @customerId = {{createCustomer.response.body.id}}
 @vehicleId = {{createVehicle.response.body.id}}

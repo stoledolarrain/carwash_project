@@ -28,7 +28,7 @@ Microservicio responsable de administrar los **clientes**, sus **vehículos iden
 
 ## Configuración asignada
 
-- **Puerto HTTP:** `3003`
+- **Puerto HTTP:** `3005`
 - **Prefijo de API:** `/api/customer` (salud pública en `GET /health`)
 - **Base de datos PostgreSQL exclusiva:** `customer_db` (la configuración rechaza conectarse a bases de datos de otros servicios como `catalog_db` o `identity_db`)
 
@@ -80,10 +80,10 @@ python manage.py migrate
 
 ## Ejecución y pruebas
 
-### Iniciar el servidor HTTP (puerto 3003)
+### Iniciar el servidor HTTP (puerto 3005)
 
 ```powershell
-python manage.py runserver 3003
+python manage.py runserver 3005
 ```
 
 ### Procesos de Apache Kafka (requieren broker en `KAFKA_BROKERS`)
@@ -114,13 +114,13 @@ pytest
 Todos los endpoints bajo `/api/customer/*` requieren `Authorization: Bearer <token>` con rol `ADMIN` o `RECEPTIONIST` (`WASHER` recibe `403 FORBIDDEN`, sin token recibe `401 UNAUTHORIZED`). `GET /health` es público.
 
 ### VS Code REST Client (`customer/customer.http`)
-1. Instala la extensión **REST Client** en VS Code e inicia `python manage.py runserver 3003`.
+1. Instala la extensión **REST Client** en VS Code e inicia `python manage.py runserver 3005`.
 2. Abre [`customer/customer.http`](customer.http) y pega tu JWT de Identity en `@token`.
 3. Ejecuta las peticiones en orden (`1.1` Health -> `2.1` Crear cliente -> `3.1` Crear vehículo -> resto de operaciones). `@customerId` y `@vehicleId` se capturan automáticamente desde las respuestas de creación.
 
 ### Postman (`customer/customer.postman_collection.json`)
 1. En Postman haz clic en **Import** y selecciona [`customer/customer.postman_collection.json`](customer.postman_collection.json).
-2. En la pestaña **Variables** de la colección, pega tu JWT de Identity en la variable `token` (deja `baseUrl = http://localhost:3003`).
+2. En la pestaña **Variables** de la colección, pega tu JWT de Identity en la variable `token` (deja `baseUrl = http://localhost:3005`).
 3. Ejecuta las carpetas en orden: `Health` -> `Clientes` -> `Vehículos` -> `Historial` -> `Casos de error`. Las pruebas automáticas incluidas verifican los códigos HTTP y guardan `customerId`, `vehicleId` y `plate`.
 
 ---
@@ -196,10 +196,10 @@ customer/
 El responsable de `api-gateway/` solo necesita registrar una entrada en `api-gateway/src/config/services.js` y la variable en `api-gateway/src/config/env.js`:
 
 - **Prefijo público:** `/api/customer` (conservar el prefijo completo al reenviar).
-- **Destino interno:** `http://localhost:3003` (variable sugerida: `CUSTOMER_SERVICE_URL`).
+- **Destino interno:** `http://localhost:3005` (variable sugerida: `CUSTOMER_SERVICE_URL`).
 - **Encabezados:** reenviar `Authorization: Bearer <JWT>` sin modificarlo (el Gateway ya lo hace por defecto).
 - **Rutas públicas:** ninguna (`publicRoutes: []`); **rutas bloqueadas:** ninguna (`blockedRoutes: []`).
-- **Health check interno:** `GET http://localhost:3003/health` (coincide con `/health/services` del Gateway).
+- **Health check interno:** `GET http://localhost:3005/health` (coincide con `/health/services` del Gateway).
 
 **Cómo verificar una vez configurado el Gateway:**
 1. `GET http://localhost:8080/health/services` -> debe reportar `customer: up`.
@@ -210,5 +210,5 @@ El responsable de `api-gateway/` solo necesita registrar una entrada en `api-gat
 1. Levantar Apache Kafka en `localhost:9092` (p. ej. contenedor KRaft en puerto `9092`).
 2. Asegurar `KAFKA_BROKERS=localhost:9092` en `wash_order/.env` y `customer/.env`.
 3. En una terminal iniciar `python manage.py consume_order_events` en `customer/` y en otra iniciar `wash_order/`.
-4. Crear un cliente y un vehículo en Customer (`:3003`), luego crear y avanzar una orden en Wash Order (`POST /api/orders`, `/start`, `/complete`, `/deliver`) usando el `clienteId` UUID y la misma placa.
+4. Crear un cliente y un vehículo en Customer (`:3005`), luego crear y avanzar una orden en Wash Order (`POST /api/orders`, `/start`, `/complete`, `/deliver`) usando el `clienteId` UUID y la misma placa.
 5. Verificar en `GET /api/customer/customers/{id}/history` y `GET /api/customer/vehicles/{id}/history` que la orden aparece con estado `ENTREGADO` en una sola fila de `wash_history` y que sus `eventId` quedaron registrados en `inbox_events` (reentregar un evento con el mismo `eventId` no genera duplicados).

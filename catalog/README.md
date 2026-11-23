@@ -337,8 +337,9 @@ npm run test:coverage
 - Las rutas administrativas `/api/catalog/admin/*` están protegidas por el middleware `requireRole('ADMIN')` (`src/presentation/middlewares/requireRole.js`).
 - Por diseño de seguridad, `requireRole` **jamás lee ni confía en encabezados HTTP enviados directamente por el cliente** (como `X-User-Role`), evitando ataques de suplantación de privilegios (*privilege spoofing*).
 - El middleware evalúa únicamente el objeto `req.auth` inyectado en el servidor:
-  - En pruebas automatizadas o cuando se conecte el middleware del API Gateway / Identity Service, `req.auth` se inyecta tras validar la firma del token.
-  - En desarrollo local (`NODE_ENV !== 'production'`), si se define `DEV_AUTH_ROLE=ADMIN` (por ejemplo con `npm run dev:admin`), `src/app.js` inyecta `req.auth = { role: 'ADMIN', source: 'dev-env' }`.
+  - **Con `JWT_SECRET` en el `.env` (modo normal):** `src/infrastructure/security/jwtAuthContext.js` verifica el JWT de Identity Service (firma HS256, expiración, emisor y audiencia) y llena `req.auth = { userId, role }`. `JWT_SECRET`, `JWT_ISSUER` y `JWT_AUDIENCE` deben ser los mismos de `identity/.env` y `api-gateway/.env`. Sin token, las rutas públicas funcionan y las administrativas responden 401; con un token inválido o vencido se responde 401; con un rol distinto de ADMIN, 403.
+  - **Sin `JWT_SECRET`, solo en desarrollo:** si se define `DEV_AUTH_ROLE=ADMIN` (por ejemplo con `npm run dev:admin`), `index.js` inyecta un rol fijo de desarrollo.
+- Detrás del API Gateway (`http://localhost:8080/api/catalog/...`), el Gateway exige token en las rutas administrativas y Catalog vuelve a verificarlo y revisa el rol.
 
 ---
 

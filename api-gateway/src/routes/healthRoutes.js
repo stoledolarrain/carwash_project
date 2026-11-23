@@ -3,7 +3,7 @@ const express = require('express');
 async function checkService(route, timeoutMs) {
   const started = Date.now();
   try {
-    const response = await fetch(new URL('/health', route.target), { signal: AbortSignal.timeout(timeoutMs) });
+    const response = await fetch(new URL(route.healthPath, route.target), { signal: AbortSignal.timeout(timeoutMs) });
     return {
       service: route.name,
       status: response.ok ? 'up' : 'down',

@@ -12,7 +12,7 @@ from config.env import EXPECTED_DATABASE, load_env_config, parse_database_url
 
 def test_django_loads_expected_settings_without_connecting_to_postgres() -> None:
     """Django debe cargar su configuración apuntando a customer_db y con DRF registrado."""
-    assert settings.PORT == 3003
+    assert settings.PORT == 3005
     assert settings.DATABASES["default"]["ENGINE"] == "django.db.backends.postgresql"
     assert settings.ENV_CONFIG.database["NAME"] == EXPECTED_DATABASE
     # pytest-django renombra DATABASES['default']['NAME'] a test_customer_db al correr tests con BD.
@@ -57,7 +57,7 @@ def test_load_env_config_allows_development_without_database_url() -> None:
     config = load_env_config(environ={})
 
     assert config.app_env == "development"
-    assert config.port == 3003
+    assert config.port == 3005
     assert config.database["NAME"] == "customer_db"
     assert config.django_secret_key != ""
     assert config.kafka.brokers == ("localhost:9092",)
@@ -90,7 +90,7 @@ def test_load_env_config_requires_secrets_and_database_in_production() -> None:
 
 
 def test_build_container_exposes_resolved_configuration() -> None:
-    config = load_env_config(environ={"PORT": "3003"})
+    config = load_env_config(environ={"PORT": "3005"})
     container = build_container(config=config)
 
     assert container.config is config
