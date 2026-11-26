@@ -3,13 +3,19 @@ const Notification = require('../../domain/Notification');
 const { pool } = require('./PostgresConnection');
 
 class PostgresNotificationRepository extends NotificationRepository {
+  /**
+   * Guarda la notificación. Si trae `eventId` y ese evento ya generó una notificación,
+   * no inserta nada y devuelve null (el evento llegó duplicado desde Kafka).
+   */
   async save(notification) {
     const query = `
-      INSERT INTO notifications (order_id, customer_name, customer_phone, event_type, message, status, created_at)
-      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      INSERT INTO notifications (event_id, order_id, customer_name, customer_phone, event_type, message, status, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (event_id) DO NOTHING
       RETURNING *;
     `;
     const values = [
+      notification.eventId,
       notification.orderId,
       notification.customerName,
       notification.customerPhone,
@@ -20,7 +26,7 @@ class PostgresNotificationRepository extends NotificationRepository {
     ];
 
     const result = await pool.query(query, values);
-    return this.mapRowToEntity(result.rows[0]);
+    return result.rows[0] ? this.mapRowToEntity(result.rows[0]) : null;
   }
 
   async findAll() {
@@ -39,6 +45,7 @@ class PostgresNotificationRepository extends NotificationRepository {
   mapRowToEntity(row) {
     return new Notification({
       id: row.id,
+      eventId: row.event_id,
       orderId: row.order_id,
       customerName: row.customer_name,
       customerPhone: row.customer_phone,

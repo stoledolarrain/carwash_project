@@ -34,7 +34,7 @@ Si el `.env` no existe, se usan los valores por defecto de `application.properti
 | `DB_HOST` / `DB_PORT` | Servidor PostgreSQL | `localhost` / `5432` |
 | `DB_USER` / `DB_PASSWORD` | Credenciales de PostgreSQL | `postgres` / `postgres` |
 | `DB_NAME` | Base de datos propia del servicio | `carwash_payments` |
-| `NOTIFICATION_URL` | URL de Notification Service | `http://localhost:3004` |
+| `KAFKA_BROKERS` | Servidores de Kafka | `localhost:9092` |
 | `JWT_SECRET` | **Obligatorio.** El mismo secreto de Identity Service. Sin él el servicio no arranca | — |
 | `JWT_ISSUER` / `JWT_AUDIENCE` | Los mismos valores de Identity Service | `carwash-identity` / `carwash-platform` |
 
@@ -49,13 +49,31 @@ Si el `.env` no existe, se usan los valores por defecto de `application.properti
 
 Sin token, o con uno inválido o vencido, responde 401. Con otro rol responde 403. El formato es `{ "error": { "code", "message" } }`.
 
-Al registrar un pago, el aviso a Notification Service lleva el mismo token del usuario que registró el pago, porque Notification también exige JWT.
-
-Las pruebas de seguridad no necesitan base de datos:
+Las pruebas no necesitan base de datos ni Kafka:
 
 ```powershell
-.\mvnw.cmd test -Dtest=PaymentSecurityTest
+.\mvnw.cmd test -Dtest="PaymentSecurityTest,KafkaPaymentEventPublisherTest"
 ```
+
+## Eventos
+
+Al registrar un pago, `KafkaPaymentEventPublisher` publica el evento **PaymentRegistered** en el topic `payment.payment.registered`. La clave del mensaje es el id de la orden. Notification Service escucha ese topic y genera el aviso al cliente: Payment no lo llama directamente ni necesita saber que existe.
+
+El evento usa el mismo sobre que los demás microservicios:
+
+```json
+{
+  "eventId": "uuid",
+  "evento": "PaymentRegistered",
+  "origen": "payment-service",
+  "eventVersion": 1,
+  "fechaEmision": "2026-11-26T15:00:00Z",
+  "aggregateId": "12",
+  "datos": { "id": "12", "orderId": "uuid-de-la-orden", "customerName": "Andrea Rojas", "amount": 45.00, "method": "QR", "status": "REGISTERED", "paidAt": "2026-11-26T11:00:00" }
+}
+```
+
+Si Kafka no responde en 5 segundos, el pago igual queda registrado y el fallo se informa en el log. Para garantizar que ningún evento se pierda haría falta un Transactional Outbox, como el de Catalog.
 
 ## Endpoints
 

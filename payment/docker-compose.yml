@@ -27,7 +27,9 @@ services:
       DB_USER: postgres
       DB_PASSWORD: postgres
       DB_NAME: carwash_payments
-      NOTIFICATION_URL: http://host.docker.internal:3004
+      # Este compose aislado no incluye Kafka: los pagos se registran, pero PaymentRegistered no se publica
+      # (queda un aviso en el log). Para los eventos usar el docker-compose.yml de la raíz.
+      KAFKA_BROKERS: host.docker.internal:9092
       JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET en payment/.env (el mismo de identity)}
       JWT_ISSUER: ${JWT_ISSUER:-carwash-identity}
       JWT_AUDIENCE: ${JWT_AUDIENCE:-carwash-platform}

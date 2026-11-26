@@ -14,8 +14,8 @@ Code, comments, READMEs, commit messages, and test descriptions are written in *
 | `identity/` | Complete, tested, persisted in PostgreSQL | Express 5, PostgreSQL (`pg`), bcryptjs, jsonwebtoken, Jest + supertest |
 | `customer/` | Complete, tested; verifies Identity JWTs | **Python** Django 5 + DRF, PostgreSQL (`customer_db`), confluent-kafka, pytest |
 | `wash_order/` | Working; verifies Identity JWTs + per-action roles | Express 5, PostgreSQL (`pg`), Kafka producer (`kafkajs`), plain `node:assert` script |
-| `payment/` | Working; verifies Identity JWTs (Spring Security) | **Java 21** Spring Boot 4, JPA + PostgreSQL, Maven wrapper |
-| `notification/` | Working; verifies Identity JWTs; no tests | Express 5, PostgreSQL (`pg`) |
+| `payment/` | Working; verifies Identity JWTs (Spring Security); publishes PaymentRegistered to Kafka | **Java 21** Spring Boot 4, JPA + PostgreSQL, Spring Kafka, Maven wrapper |
+| `notification/` | Working; verifies Identity JWTs; Kafka consumer of order and payment events | Express 5, PostgreSQL (`pg`), `kafkajs`, Jest |
 
 Every service now verifies Identity's HS256 JWT itself (same `JWT_SECRET`/`JWT_ISSUER`/`JWT_AUDIENCE` in every `.env`), so all of them refuse to start without `JWT_SECRET` except catalog (falls back to `DEV_AUTH_ROLE`) and customer (lenient outside production). Role sets follow Identity's permission lists in `identity/src/domain/value-objects/Role.js`.
 | `api-gateway/` | Working, tested; routes all six services | Express 5, hand-written `node:http` proxy, jsonwebtoken, cors, Jest + supertest |
@@ -24,6 +24,21 @@ Every service now verifies Identity's HS256 JWT itself (same `JWT_SECRET`/`JWT_I
 Ports (keep unique; every service reads `PORT` from its own `.env`): wash_order 3000, identity 3001, catalog 3002, payment 3003 (`server.port`), notification 3004, customer 3005, api-gateway 8080.
 
 ## Commands
+
+### Whole platform with Docker (root)
+```powershell
+Copy-Item .env.example .env   # POSTGRES_PASSWORD (letters/digits only: it goes inside URLs), JWT_SECRET, DJANGO_SECRET_KEY, ADMIN_PASSWORD
+docker compose up -d --build
+docker compose ps                     # all services should be "healthy"
+docker compose logs -f wash-order     # one service's logs
+docker compose down                   # stop (keeps data); add -v to wipe the postgres/kafka volumes
+```
+- Inside Docker the services ignore their own `.env` files (excluded by every `.dockerignore`); all config comes from the root `.env` via `docker-compose.yml`.
+- One `postgres:16-alpine` holds all six databases, created by `docker/postgres/init/01-create-databases.sql` only on an empty volume. Published on host port **5433** so a local PostgreSQL can keep 5432.
+- Kafka is `apache/kafka` in KRaft single-node mode: containers use `kafka:29092`, the host uses `localhost:9092`. One-shot `kafka-init` creates every topic first, because customer's consumer fails on missing topics.
+- Customer's image runs as three containers: `customer` (migrate + gunicorn), `customer-consumer` (`consume_order_events`), `customer-outbox` (`publish_outbox`). Catalog's container runs `migrate.js` before `index.js`.
+- Only `api-gateway` (8080), `frontend` (5173, nginx), postgres (5433), and kafka (9092) publish ports; microservices are reachable only through the gateway.
+- `payment/` and `notification/` keep their own `docker-compose.yml` for isolated runs; the root one is the real deployment.
 
 ### catalog (port 3002)
 ```powershell
@@ -100,11 +115,12 @@ python manage.py publish_outbox         # outbox worker (separate process)
 
 ### payment (port 3003) / notification (port 3004)
 ```powershell
-cd payment; .\mvnw.cmd spring-boot:run      # run FROM payment/: reads payment/.env (PORT, DB_*, NOTIFICATION_URL)
-cd notification; npm install; node index.js  # reads notification/.env (PORT, DB_*)
+cd payment; .\mvnw.cmd spring-boot:run      # run FROM payment/: reads payment/.env (PORT, DB_*, KAFKA_BROKERS, JWT_*)
+cd notification; npm install; node index.js  # reads notification/.env (PORT, DB_*, KAFKA_*, JWT_*)
 ```
 Payment is Spring Boot, which does not read `.env` natively: `application.properties` pulls it in with `spring.config.import=optional:file:.env[.properties]` (path relative to the working directory). Real environment variables, e.g. from `docker-compose.yml`, override it.
-Each has its own `docker-compose.yml` with a dedicated Postgres container (both now demand `JWT_SECRET` via `${JWT_SECRET:?...}`). Payment notifies Notification over direct HTTP (`NOTIFICATION_URL`), not Kafka, forwarding the caller's JWT taken from the Spring `SecurityContext`; Notification only accepts ADMIN/RECEPTIONIST.
+Each has its own `docker-compose.yml` with a dedicated Postgres container (both demand `JWT_SECRET` via `${JWT_SECRET:?...}`); those isolated composes have no Kafka, so use the root compose for events.
+Events between them go through Kafka, not HTTP: payment's `infrastructure/messaging/KafkaPaymentEventPublisher.java` publishes `PaymentRegistered` to `payment.payment.registered` (key = orderId, common envelope, Jackson 3 `tools.jackson.databind.ObjectMapper`, 5 s send timeout so a dead broker never blocks the request; no outbox). Notification's `src/infrastructure/messaging/KafkaEventConsumer.js` consumes `wash-order.order.events` + `payment.payment.registered` (`fromBeginning`, retries every 10 s if Kafka is down without killing the HTTP API) and `src/application/commands/NotifyFromEventCommand.js` builds plate-based messages. Idempotency: unique index on `notifications.event_id` + `INSERT ... ON CONFLICT (event_id) DO NOTHING`. Notices are eventually consistent (seconds), and ordering is only guaranteed within one topic. `npm test` in notification runs Jest (`tests/notifyFromEvent.test.js`). Notification's `POST /api/notifications` (HTTP, ADMIN/RECEPTIONIST) still exists but nothing calls it and the gateway blocks it.
 Payment security: `infrastructure/security/SecurityConfig.java` (OAuth2 resource server, `NimbusJwtDecoder` HS256 + issuer/audience/role validators, JSON 401/403). `PaymentSecurityTest` is a `@WebMvcTest` that needs no DB (`.\mvnw.cmd test -Dtest=PaymentSecurityTest`); the default `contextLoads` test still needs a real DB and `JWT_SECRET`. Spring Boot 4 moved test annotations: `org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest`, `org.springframework.test.context.bean.override.mockito.MockitoBean`.
 
 ### frontend
@@ -143,12 +159,12 @@ Admin routes trust only `req.auth = { userId, role | roles }`. Nothing reads cli
 
 ### wash_order
 - `domain/states/OrderState.js` implements the **State pattern** for the order lifecycle `EN_ESPERA → EN_PROCESO → LISTO → ENTREGADO`. Transitions happen only via the state classes; invalid transitions throw.
-- Wiring is done inline in `presentation/routes/orderRoutes.js` (no container). Commands receive the SQLite repository and `busEventos`.
-- `infrastructure/events/eventEmitter.js` wraps every emitted event in the same envelope shape catalog uses (`eventId`, `evento`, `eventVersion`, `fechaEmision`, `aggregateId`, `datos`) and optionally POSTs it to `NOTIFICATION_SERVICE_URL`. It is an in-process bus, not Kafka, so this is the first place to touch when migrating wash_order to the broker.
+- Wiring is done inline in `presentation/routes/orderRoutes.js` (no container). Commands receive `PostgresWashOrderRepository` and `busEventos`.
+- `infrastructure/events/eventEmitter.js` (`KafkaOrderEventPublisher`) publishes every event to Kafka topic `wash-order.order.events` with the same envelope shape catalog uses (`eventId`, `evento`, `origen`, `eventVersion`, `fechaEmision`, `aggregateId`, `datos`). Customer consumes that topic. There is no outbox: if the broker is down the event is only logged and lost.
 - Order creation currently takes free-form service codes and a client-supplied `precioTotal`; the intended integration is to validate/price against catalog's `POST /api/catalog/services/batch` (`{ ids, onlyActive: true }` → `{ services, notFound }`).
 
 ### Cross-service conventions
-- Each service owns its database (`catalog_db`, SQLite file for wash_order). Never query another service's tables.
+- Each service owns its database (`identity_db`, `catalog_db`, `customer_db`, `carwash1` for wash_order, `carwash_payments`, `carwash_notifications`). Never query another service's tables.
 - Event envelope fields are shared across services; keep `eventVersion` and topic names (`catalog.service.created|updated|price-changed|activated|deactivated`) stable.
 - Catalog's `README.md` is the authoritative, detailed spec for its endpoints, DTOs, env vars, and event payloads. Read it before changing the API.
 

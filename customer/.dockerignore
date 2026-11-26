@@ -1,0 +1,16 @@
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.coverage
+htmlcov
+.env
+.env.*
+!.env.example
+tests
+*.postman_collection.json
+*.http
+README.md
+Dockerfile
+.dockerignore
+.git

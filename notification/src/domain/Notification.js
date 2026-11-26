@@ -1,5 +1,5 @@
 class Notification {
-  constructor({ id, orderId, customerName, customerPhone, eventType, message, status, createdAt }) {
+  constructor({ id, eventId = null, orderId, customerName, customerPhone, eventType, message, status, createdAt }) {
     if (!orderId) {
       throw new Error('El ID de la orden (orderId) es obligatorio para notificar.');
     }
@@ -8,6 +8,9 @@ class Notification {
     }
 
     this.id = id || null;
+    // Id del evento de Kafka que originó la notificación (null si llegó por HTTP).
+    // Garantiza que un mismo evento entregado dos veces no genere dos avisos.
+    this.eventId = eventId;
     this.orderId = orderId;             // Ej: "CW-0187"
     this.customerName = customerName;   // Ej: "Andrea Rojas"
     this.customerPhone = customerPhone; // Ej: "70012345" (para simular WhatsApp/SMS)

@@ -1,0 +1,14 @@
+node_modules
+npm-debug.log*
+.env
+.env.*
+!.env.example
+coverage
+tests
+test.js
+*.postman_collection.json
+*.http
+README.md
+Dockerfile
+.dockerignore
+.git

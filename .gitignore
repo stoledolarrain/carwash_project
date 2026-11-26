@@ -1,0 +1,2 @@
+# Variables de entorno locales (contienen secretos): nunca se suben a GitHub.
+.env

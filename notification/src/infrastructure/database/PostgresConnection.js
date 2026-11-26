@@ -23,6 +23,10 @@ const initDatabase = async () => {
     );
   `;
   await pool.query(query);
+  // Idempotencia de los eventos de Kafka: un eventId solo puede generar una notificación.
+  // (Un índice único admite varios NULL, así que las notificaciones creadas por HTTP no se ven afectadas.)
+  await pool.query('ALTER TABLE notifications ADD COLUMN IF NOT EXISTS event_id VARCHAR(64)');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uq_notifications_event_id ON notifications (event_id)');
   console.log('✅ Tabla "notifications" verificada/creada en PostgreSQL');
 };
 

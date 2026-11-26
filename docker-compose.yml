@@ -1,0 +1,309 @@
+# Plataforma de Gestión para Car Wash — todo el sistema con un solo comando:
+#
+#   docker compose up -d --build
+#
+# Requiere el archivo .env en esta carpeta (copiar .env.example y completar los secretos).
+#
+# Puertos publicados en la máquina:
+#   8080  API Gateway (único punto de entrada a los microservicios)
+#   5173  Frontend
+#   5433  PostgreSQL (para pgAdmin; 5432 queda libre para un PostgreSQL local)
+#   9092  Kafka (para servicios que se ejecuten fuera de Docker)
+# Los microservicios NO publican puertos: solo se alcanzan a través del Gateway.
+
+name: carwash
+
+x-jwt: &jwt
+  JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET en el .env de la raíz}
+  JWT_ISSUER: carwash-identity
+  JWT_AUDIENCE: carwash-platform
+
+x-restart: &restart
+  restart: unless-stopped
+
+services:
+  # ───────────────────────── Infraestructura ─────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    <<: *restart
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD en el .env de la raíz}
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  kafka:
+    image: apache/kafka:3.9.0
+    <<: *restart
+    environment:
+      # Un solo nodo en modo KRaft (sin Zookeeper): actúa como broker y controlador.
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      # INTERNAL: para los contenedores (kafka:29092). EXTERNAL: para la máquina (localhost:9092).
+      KAFKA_LISTENERS: INTERNAL://:29092,CONTROLLER://:9093,EXTERNAL://:9092
+      KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_NUM_PARTITIONS: 1
+    ports:
+      - "9092:9092"
+    volumes:
+      - kafka_data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server localhost:29092 > /dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  # Crea los topics antes de que los servicios los usen (el consumidor de Customer falla si su topic no existe).
+  kafka-init:
+    image: apache/kafka:3.9.0
+    depends_on:
+      kafka:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        for topic in \
+          catalog.service.created catalog.service.updated catalog.service.price-changed \
+          catalog.service.activated catalog.service.deactivated \
+          wash-order.order.events \
+          customer.customer.registered customer.customer.updated \
+          customer.customer.activated customer.customer.deactivated \
+          customer.vehicle.registered customer.vehicle.updated \
+          payment.payment.registered; do
+          /opt/kafka/bin/kafka-topics.sh --bootstrap-server kafka:29092 --create --if-not-exists \
+            --topic "$$topic" --partitions 1 --replication-factor 1 || exit 1
+        done
+        echo "Topics de Kafka listos."
+
+  # ───────────────────────── Microservicios ─────────────────────────
+  identity:
+    build: ./identity
+    <<: *restart
+    environment:
+      <<: *jwt
+      PORT: 3001
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/identity_db
+      JWT_EXPIRES_IN: 1h
+      TRUST_PROXY: 1
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@carwash.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Defina ADMIN_PASSWORD en el .env de la raíz}
+      ADMIN_FULL_NAME: Administrador General
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3001/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  catalog:
+    build: ./catalog
+    <<: *restart
+    environment:
+      <<: *jwt
+      PORT: 3002
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/catalog_db
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_CLIENT_ID: catalog-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3002/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  customer:
+    build: ./customer
+    <<: *restart
+    environment: &customer-env
+      <<: *jwt
+      APP_ENV: production
+      PORT: 3005
+      DJANGO_SECRET_KEY: ${DJANGO_SECRET_KEY:?Defina DJANGO_SECRET_KEY en el .env de la raíz}
+      DJANGO_DEBUG: "false"
+      # "customer" es el nombre con el que lo llama el Gateway dentro de la red de Docker.
+      ALLOWED_HOSTS: customer,localhost,127.0.0.1
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD}@postgres:5432/customer_db
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_CLIENT_ID: customer-service
+      KAFKA_GROUP_ID: customer-service-group
+      KAFKA_ORDER_EVENT_TOPICS: wash-order.order.events
+      KAFKA_AUTO_OFFSET_RESET: earliest
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:3005/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+  # Lee los eventos de Wash Order en Kafka y arma el historial de clientes y vehículos.
+  customer-consumer:
+    build: ./customer
+    <<: *restart
+    command: ["python", "manage.py", "consume_order_events"]
+    environment: *customer-env
+    depends_on:
+      customer:
+        condition: service_healthy
+
+  # Publica en Kafka los eventos de Customer guardados en su outbox.
+  customer-outbox:
+    build: ./customer
+    <<: *restart
+    command: ["python", "manage.py", "publish_outbox"]
+    environment: *customer-env
+    depends_on:
+      customer:
+        condition: service_healthy
+
+  wash-order:
+    build: ./wash_order
+    <<: *restart
+    environment:
+      <<: *jwt
+      PORT: 3000
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: carwash1
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_CLIENT_ID: wash-order-service
+      KAFKA_ORDER_EVENT_TOPIC: wash-order.order.events
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3000/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  payment:
+    build: ./payment
+    <<: *restart
+    environment:
+      <<: *jwt
+      PORT: 3003
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: carwash_payments
+      # Publica PaymentRegistered en Kafka; Notification lo escucha (ya no hay llamada HTTP directa).
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_CLIENT_ID: payment-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3003/api/payments/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 40s
+
+  notification:
+    build: ./notification
+    <<: *restart
+    environment:
+      <<: *jwt
+      PORT: 3004
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: postgres
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_NAME: carwash_notifications
+      # Escucha los cambios de estado de las órdenes y los pagos para enviar los avisos al cliente.
+      KAFKA_BROKERS: kafka:29092
+      KAFKA_CLIENT_ID: notification-service
+      KAFKA_GROUP_ID: notification-service-group
+      KAFKA_TOPICS: wash-order.order.events,payment.payment.registered
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:3004/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 15s
+
+  # ───────────────────────── Entrada y frontend ─────────────────────────
+  api-gateway:
+    build: ./api-gateway
+    <<: *restart
+    environment:
+      <<: *jwt
+      PORT: 8080
+      IDENTITY_SERVICE_URL: http://identity:3001
+      CATALOG_SERVICE_URL: http://catalog:3002
+      CUSTOMER_SERVICE_URL: http://customer:3005
+      WASH_ORDER_SERVICE_URL: http://wash-order:3000
+      PAYMENT_SERVICE_URL: http://payment:3003
+      NOTIFICATION_SERVICE_URL: http://notification:3004
+      CORS_ORIGINS: http://localhost:${FRONTEND_PORT:-5173}
+    ports:
+      - "8080:8080"
+    depends_on:
+      - identity
+      - catalog
+      - customer
+      - wash-order
+      - payment
+      - notification
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://localhost:8080/health > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  frontend:
+    build: ./frontend
+    <<: *restart
+    ports:
+      # Cambiar FRONTEND_PORT en el .env si el 5173 ya está ocupado (p. ej. por otro servidor de Vite).
+      - "${FRONTEND_PORT:-5173}:80"
+    depends_on:
+      - api-gateway
+
+volumes:
+  postgres_data:
+  kafka_data:

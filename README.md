@@ -36,4 +36,51 @@ La plataforma está compuesta por los siguientes módulos con responsabilidades 
 
 ## Estado Actual
 
-El proyecto se encuentra en fase de inicialización. Se ha definido la estructura base del Monorepo y se ha creado el esqueleto de la aplicación Frontend.
+Los seis microservicios y el API Gateway están implementados, conectados entre sí y verifican el JWT de Identity Service. El frontend todavía es la plantilla inicial de Vite.
+
+| Servicio | Tecnología | Puerto interno | Base de datos |
+|---|---|---|---|
+| API Gateway | Node.js + Express | 8080 (publicado) | — |
+| Identity | Node.js + Express | 3001 | `identity_db` |
+| Catalog | Node.js + Express | 3002 | `catalog_db` |
+| Payment | Java + Spring Boot | 3003 | `carwash_payments` |
+| Notification | Node.js + Express | 3004 | `carwash_notifications` |
+| Customer / Vehicle | Python + Django | 3005 | `customer_db` |
+| Wash Order | Node.js + Express | 3000 | `carwash1` |
+| Frontend | React + Vite (nginx) | 5173 (publicado) | — |
+
+## Ejecución con Docker
+
+Requiere Docker Desktop. Todo el sistema se levanta desde la raíz del repositorio:
+
+```powershell
+Copy-Item .env.example .env    # completar los secretos (ver comentarios del archivo)
+docker compose up -d --build
+docker compose ps              # esperar a que todos los servicios estén "healthy"
+```
+
+| Dirección | Qué es |
+|---|---|
+| `http://localhost:8080` | API Gateway: único punto de entrada a los microservicios |
+| `http://localhost:8080/health/services` | Estado de los seis microservicios |
+| `http://localhost:5173` | Frontend |
+| `localhost:5433` | PostgreSQL, para conectarse desde pgAdmin (usuario `postgres`, contraseña `POSTGRES_PASSWORD` del `.env`) |
+| `localhost:9092` | Kafka |
+
+`docker-compose.yml` levanta:
+
+- **Un PostgreSQL** con una base de datos independiente por microservicio, creadas por `docker/postgres/init/01-create-databases.sql`.
+- **Kafka** en modo KRaft, sin Zookeeper, y un contenedor que crea los topics al inicio.
+- **Los seis microservicios.** Customer usa tres contenedores: la API, el consumidor de eventos de Wash Order y el publicador de su outbox.
+- **El API Gateway y el frontend.** Son los únicos, junto con PostgreSQL y Kafka, que publican puertos: los microservicios solo se alcanzan a través del Gateway.
+
+Comandos útiles:
+
+```powershell
+docker compose logs -f wash-order   # ver los logs de un servicio
+docker compose restart catalog      # reiniciar un servicio
+docker compose down                 # detener todo (los datos se conservan)
+docker compose down -v              # detener y borrar los datos de PostgreSQL y Kafka
+```
+
+Dentro de Docker los microservicios no usan sus propios archivos `.env`: toda la configuración sale del `.env` de la raíz. Los `.env` de cada carpeta sirven para ejecutar un servicio fuera de Docker durante el desarrollo.
