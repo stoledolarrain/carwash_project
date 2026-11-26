@@ -1,0 +1,57 @@
+/*
+ * Tema AquaBrillo: paleta inspirada en sitios de car wash (azul marino profundo, azul agua y
+ * acentos cálidos). Todo color, tipografía y radio del frontend sale de estas variables:
+ * cambiar un valor aquí lo cambia en todas las pantallas.
+ */
+:root {
+  /* Marca */
+  --navy-950: #061430;
+  --navy-900: #0a1f44;
+  --navy-800: #11295a;
+  --navy-700: #1a3a78;
+  --blue-600: #155fc4;
+  --blue-500: #1a73e8;
+  --blue-100: #dcebfd;
+  --aqua-400: #22b8ec;
+  --aqua-100: #d9f3fc;
+  --sky-50: #f0f7fe;
+  --accent: #ffc23d;
+  --accent-600: #f0a900;
+  --accent-ink: #3b2a00;
+
+  /* Neutros */
+  --ink-900: #0f1b2d;
+  --ink-700: #334155;
+  --ink-500: #5b6b80;
+  --ink-300: #a3b1c2;
+  --line: #e1e8f0;
+  --surface: #ffffff;
+  --bg: #f4f8fc;
+
+  /* Estados de una orden */
+  --espera: #a16207;
+  --espera-bg: #fff4d6;
+  --proceso: #155fc4;
+  --proceso-bg: #dcebfd;
+  --listo: #15803d;
+  --listo-bg: #dcfce7;
+  --entregado: #475569;
+  --entregado-bg: #e9eef4;
+  --pago: #6d28d9;
+  --pago-bg: #ede9fe;
+  --danger: #c2261d;
+  --danger-bg: #fde8e7;
+
+  /* Tipografía */
+  --font-display: 'Barlow Condensed', 'Arial Narrow', system-ui, sans-serif;
+  --font-body: 'Barlow', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* Forma y profundidad */
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 20px;
+  --shadow-sm: 0 1px 2px rgba(10, 31, 68, 0.06), 0 1px 3px rgba(10, 31, 68, 0.06);
+  --shadow: 0 6px 24px -8px rgba(10, 31, 68, 0.18);
+  --shadow-lg: 0 24px 60px -20px rgba(10, 31, 68, 0.35);
+  --ring: 0 0 0 3px rgba(26, 115, 232, 0.28);
+}

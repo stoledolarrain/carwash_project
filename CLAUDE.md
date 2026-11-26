@@ -19,7 +19,7 @@ Code, comments, READMEs, commit messages, and test descriptions are written in *
 
 Every service now verifies Identity's HS256 JWT itself (same `JWT_SECRET`/`JWT_ISSUER`/`JWT_AUDIENCE` in every `.env`), so all of them refuse to start without `JWT_SECRET` except catalog (falls back to `DEV_AUTH_ROLE`) and customer (lenient outside production). Role sets follow Identity's permission lists in `identity/src/domain/value-objects/Role.js`.
 | `api-gateway/` | Working, tested; routes all six services | Express 5, hand-written `node:http` proxy, jsonwebtoken, cors, Jest + supertest |
-| `frontend/` | Vite + React 19 scaffold, untouched template | Vite, ESLint |
+| `frontend/` | Working: public site + role-based panel for all six services (see `frontend/README.md`) | Vite, React 19, React Router 7, plain CSS variables, ESLint |
 
 Ports (keep unique; every service reads `PORT` from its own `.env`): wash_order 3000, identity 3001, catalog 3002, payment 3003 (`server.port`), notification 3004, customer 3005, api-gateway 8080.
 
